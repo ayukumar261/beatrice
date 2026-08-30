@@ -1,0 +1,60 @@
+name: platform
+
+services:
+  postgresql:
+    image: postgres:16-alpine
+    container_name: postgresql
+    environment:
+      POSTGRES_USER: platform
+      POSTGRES_PASSWORD: platform
+      POSTGRES_DB: platform
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U platform -d platform"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - temporal
+
+  temporal:
+    image: temporalio/auto-setup:${TEMPORAL_VERSION:-latest}
+    container_name: temporal
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    environment:
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=platform
+      - POSTGRES_PWD=platform
+      - POSTGRES_SEEDS=postgresql
+      - DBNAME=temporal
+      - VISIBILITY_DBNAME=temporal_visibility
+    ports:
+      - "7233:7233"
+    networks:
+      - temporal
+
+  temporal-ui:
+    image: temporalio/ui:${TEMPORAL_UI_VERSION:-latest}
+    container_name: temporal-ui
+    depends_on:
+      - temporal
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CORS_ORIGINS=http://localhost:3000
+    ports:
+      - "8080:8080"
+    networks:
+      - temporal
+
+volumes:
+  postgres-data:
+
+networks:
+  temporal:
+    driver: bridge
