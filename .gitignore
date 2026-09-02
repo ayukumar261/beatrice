@@ -40,3 +40,9 @@ yarn-error.log*
 # Braintrust
 .env.braintrust
 .braintrust.json
+
+# Fiberplane local issue tracking
+.fp/*
+!.fp/remote.toml
+FP_CLAUDE.md
+CLAUDE.md
