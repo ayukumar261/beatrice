@@ -1,6 +1,22 @@
 /** Task queue shared by the worker and anything that starts workflows on it. */
 export const TASK_QUEUE = "agents";
 
+/**
+ * The SMS conversation workflow and the signal it registers. The gateway
+ * addresses them by these names and never imports workflow code.
+ */
+export const LINQ_CONVERSATION = "linqConversation";
+export const LINQ_MESSAGE = "linqMessage";
+
+/** `linqMessage` signal payload: one inbound text, already validated. */
+export interface LinqIncomingMessage {
+  eventId: string;
+  messageId: string;
+  chatId: string;
+  text: string;
+  hasAttachments: boolean;
+}
+
 /** Minimal OpenAI-wire chat message shapes. */
 export type Message =
   | { role: "system"; content: string }
