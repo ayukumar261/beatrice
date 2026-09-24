@@ -7,6 +7,8 @@ import type { Message, ToolCall } from "@repo/types";
 import { toolDefinitions } from "../tools";
 import { flushLogs } from "./braintrust";
 
+const REQUEST_TIMEOUT_MS = 100_000;
+
 export interface CompletionInput {
   model: string;
   messages: Message[];
@@ -54,14 +56,19 @@ export function createOpenRouterActivities(
           },
         });
 
+        // Keep the activity alive while waiting on the model. An independent
+        // deadline and Temporal cancellation bound the HTTP request.
+        ctx.heartbeat();
+        const heartbeat = setInterval(() => ctx.heartbeat(), 5_000);
+        heartbeat.unref();
         try {
-          // A stalled stream trips heartbeatTimeout long before startToCloseTimeout.
           const { usage, ...output } = await complete(
             client,
             input,
-            (chunks) => {
-              if (chunks % 25 === 0) ctx.heartbeat(chunks);
-            },
+            AbortSignal.any([
+              ctx.cancellationSignal,
+              AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+            ]),
           );
           currentSpan().log({
             input: input.messages,
@@ -78,7 +85,11 @@ export function createOpenRouterActivities(
         } catch (err) {
           // Error spans are the ones a crashed retry can lose — make them durable now.
           await flushLogs();
-          throw toFailure(err);
+          throw ctx.cancellationSignal.aborted
+            ? ctx.cancellationSignal.reason
+            : toFailure(err);
+        } finally {
+          clearInterval(heartbeat);
         }
       },
       { name: "generate", type: "llm", parent: input.trace },
@@ -92,18 +103,20 @@ export function createOpenRouterActivities(
 export async function complete(
   client: OpenAI,
   input: CompletionInput,
-  onChunk?: (chunks: number) => void,
+  signal?: AbortSignal,
 ): Promise<Completion> {
-  const stream = await client.chat.completions.create({
-    model: input.model,
-    messages: input.messages,
-    tools: input.tools.length > 0 ? toolDefinitions(input.tools) : undefined,
-    stream: true,
-    stream_options: { include_usage: true },
-  });
+  const stream = await client.chat.completions.create(
+    {
+      model: input.model,
+      messages: input.messages,
+      tools: input.tools.length > 0 ? toolDefinitions(input.tools) : undefined,
+      stream: true,
+      stream_options: { include_usage: true },
+    },
+    { signal, timeout: REQUEST_TIMEOUT_MS, maxRetries: 0 },
+  );
 
   let text = "";
-  let chunks = 0;
   let usage: OpenAI.CompletionUsage | undefined;
   const partials = new Map<
     number,
@@ -124,7 +137,6 @@ export async function complete(
       if (tc.function?.arguments) partial.arguments += tc.function.arguments;
       partials.set(tc.index, partial);
     }
-    onChunk?.(++chunks);
   }
 
   const toolCalls: ToolCall[] = [...partials.entries()]
