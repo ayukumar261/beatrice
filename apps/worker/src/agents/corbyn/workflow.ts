@@ -6,7 +6,7 @@ import {
 
 import type { Message, CorbynInput, CorbynOutput } from "@repo/types";
 import type * as braintrust from "../../services/braintrust";
-import type * as openrouter from "../../services/openrouter";
+import type { createOpenRouterActivities } from "../../services/openrouter";
 import type * as tools from "../../tools";
 
 const MODEL = "anthropic/claude-sonnet-4.5";
@@ -14,7 +14,9 @@ const SYSTEM = "You are Corbyn. Use the available tools when they help you answe
 const MAX_STEPS = 8;
 const TOOLS = ["get_time"];
 
-const { generate } = proxyActivities<typeof openrouter>({
+const { generate } = proxyActivities<
+  ReturnType<typeof createOpenRouterActivities>
+>({
   startToCloseTimeout: "2 minutes",
   heartbeatTimeout: "15 seconds",
   retry: {

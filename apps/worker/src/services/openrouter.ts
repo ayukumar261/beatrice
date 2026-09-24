@@ -7,22 +7,13 @@ import type { Message, ToolCall } from "@repo/types";
 import { toolDefinitions } from "../tools";
 import { flushLogs } from "./braintrust";
 
-const apiKey = process.env.OPENROUTER_API_KEY;
-if (!apiKey) {
-  throw new Error(
-    "OPENROUTER_API_KEY is not set — add it to the .env file at the repo root.",
-  );
-}
-
-const openrouter = new OpenAI({
-  baseURL: "https://openrouter.ai/api/v1",
-  apiKey,
-});
-
-export interface GenerateInput {
+export interface CompletionInput {
   model: string;
   messages: Message[];
   tools: string[];
+}
+
+export interface GenerateInput extends CompletionInput {
   step: number;
   trace: string;
 }
@@ -33,99 +24,120 @@ export interface GenerateOutput {
   toolCalls: ToolCall[];
 }
 
-export async function generate(input: GenerateInput): Promise<GenerateOutput> {
-  return traced(
-    async () => {
-      const ctx = Context.current();
-      const { attempt, workflowExecution } = ctx.info;
-      currentSpan().log({
-        metadata: {
-          workflowId: workflowExecution?.workflowId ?? "unknown",
-          step: input.step,
-          attempt,
-        },
-      });
+interface Completion extends GenerateOutput {
+  usage?: OpenAI.CompletionUsage;
+}
 
-      try {
-        const stream = await openrouter.chat.completions.create({
-          model: input.model,
-          messages: input.messages,
-          tools:
-            input.tools.length > 0 ? toolDefinitions(input.tools) : undefined,
-          stream: true,
-          stream_options: { include_usage: true },
-        });
+export function createOpenRouterActivities(
+  apiKey = process.env.OPENROUTER_API_KEY,
+) {
+  if (!apiKey) {
+    throw new Error(
+      "OPENROUTER_API_KEY is not set — add it to the .env file at the repo root.",
+    );
+  }
+  const client = new OpenAI({
+    baseURL: "https://openrouter.ai/api/v1",
+    apiKey,
+  });
 
-        let text = "";
-        let chunks = 0;
-        let usage: OpenAI.CompletionUsage | undefined;
-        const partials = new Map<
-          number,
-          { id: string; name: string; arguments: string }
-        >();
-
-        for await (const chunk of stream) {
-          if (chunk.usage) usage = chunk.usage;
-          const delta = chunk.choices[0]?.delta;
-          if (delta?.content) {
-            text += delta.content;
-          }
-          for (const tc of delta?.tool_calls ?? []) {
-            const partial = partials.get(tc.index) ?? {
-              id: "",
-              name: "",
-              arguments: "",
-            };
-            if (tc.id) partial.id = tc.id;
-            if (tc.function?.name) partial.name += tc.function.name;
-            if (tc.function?.arguments)
-              partial.arguments += tc.function.arguments;
-            partials.set(tc.index, partial);
-          }
-          // A stalled stream trips heartbeatTimeout long before startToCloseTimeout.
-          if (++chunks % 25 === 0) {
-            ctx.heartbeat(chunks);
-          }
-        }
-
-        const toolCalls: ToolCall[] = [...partials.entries()]
-          .sort(([a], [b]) => a - b)
-          .map(([, partial]) => ({
-            id: partial.id,
-            type: "function",
-            function: { name: partial.name, arguments: partial.arguments },
-          }));
-
-        const message: Message =
-          toolCalls.length > 0
-            ? {
-                role: "assistant",
-                content: text.length > 0 ? text : null,
-                tool_calls: toolCalls,
-              }
-            : { role: "assistant", content: text };
-
+  async function generate(input: GenerateInput): Promise<GenerateOutput> {
+    return traced(
+      async () => {
+        const ctx = Context.current();
+        const { attempt, workflowExecution } = ctx.info;
         currentSpan().log({
-          input: input.messages,
-          output: message,
-          ...(usage && {
-            metrics: {
-              prompt_tokens: usage.prompt_tokens,
-              completion_tokens: usage.completion_tokens,
-              tokens: usage.total_tokens,
-            },
-          }),
+          metadata: {
+            workflowId: workflowExecution?.workflowId ?? "unknown",
+            step: input.step,
+            attempt,
+          },
         });
 
-        return { message, text, toolCalls };
-      } catch (err) {
-        // Error spans are the ones a crashed retry can lose — make them durable now.
-        await flushLogs();
-        throw toFailure(err);
-      }
-    },
-    { name: "generate", type: "llm", parent: input.trace },
-  );
+        try {
+          // A stalled stream trips heartbeatTimeout long before startToCloseTimeout.
+          const { usage, ...output } = await complete(
+            client,
+            input,
+            (chunks) => {
+              if (chunks % 25 === 0) ctx.heartbeat(chunks);
+            },
+          );
+          currentSpan().log({
+            input: input.messages,
+            output: output.message,
+            ...(usage && {
+              metrics: {
+                prompt_tokens: usage.prompt_tokens,
+                completion_tokens: usage.completion_tokens,
+                tokens: usage.total_tokens,
+              },
+            }),
+          });
+          return output;
+        } catch (err) {
+          // Error spans are the ones a crashed retry can lose — make them durable now.
+          await flushLogs();
+          throw toFailure(err);
+        }
+      },
+      { name: "generate", type: "llm", parent: input.trace },
+    );
+  }
+
+  return { generate };
+}
+
+/** One streamed chat completion, accumulated into a message. */
+export async function complete(
+  client: OpenAI,
+  input: CompletionInput,
+  onChunk?: (chunks: number) => void,
+): Promise<Completion> {
+  const stream = await client.chat.completions.create({
+    model: input.model,
+    messages: input.messages,
+    tools: input.tools.length > 0 ? toolDefinitions(input.tools) : undefined,
+    stream: true,
+    stream_options: { include_usage: true },
+  });
+
+  let text = "";
+  let chunks = 0;
+  let usage: OpenAI.CompletionUsage | undefined;
+  const partials = new Map<
+    number,
+    { id: string; name: string; arguments: string }
+  >();
+  for await (const chunk of stream) {
+    if (chunk.usage) usage = chunk.usage;
+    const delta = chunk.choices[0]?.delta;
+    if (delta?.content) text += delta.content;
+    for (const tc of delta?.tool_calls ?? []) {
+      const partial = partials.get(tc.index) ?? {
+        id: "",
+        name: "",
+        arguments: "",
+      };
+      if (tc.id) partial.id = tc.id;
+      if (tc.function?.name) partial.name += tc.function.name;
+      if (tc.function?.arguments) partial.arguments += tc.function.arguments;
+      partials.set(tc.index, partial);
+    }
+    onChunk?.(++chunks);
+  }
+
+  const toolCalls: ToolCall[] = [...partials.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([, partial]) => ({
+      id: partial.id,
+      type: "function",
+      function: { name: partial.name, arguments: partial.arguments },
+    }));
+  const message: Message = toolCalls.length
+    ? { role: "assistant", content: text || null, tool_calls: toolCalls }
+    : { role: "assistant", content: text };
+  return { message, text, toolCalls, usage };
 }
 
 function toFailure(err: unknown): unknown {
