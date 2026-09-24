@@ -13,6 +13,8 @@ const MODEL = "anthropic/claude-sonnet-4.5";
 const SYSTEM = "You are Corbyn. Use the available tools when they help you answer accurately.";
 const MAX_STEPS = 8;
 const TOOLS = ["get_time"];
+/** Web searches shared across all model calls in one run. */
+const MAX_WEB_SEARCHES_PER_TURN = 50;
 
 const { generate } = proxyActivities<
   ReturnType<typeof createOpenRouterActivities>
@@ -49,14 +51,22 @@ export async function corbyn(input: CorbynInput): Promise<CorbynOutput> {
   try {
     trace = await startTrace({ agent: "corbyn", task: input.task });
 
+    let webSearchBudget = MAX_WEB_SEARCHES_PER_TURN;
     for (let step = 0; step < MAX_STEPS; step++) {
-      const { message, text, toolCalls } = await generate({
-        model: MODEL,
-        messages,
-        tools: TOOLS,
-        step,
-        trace,
-      });
+      const { message, text, toolCalls, webSearchBudgetConsumed } =
+        await generate({
+          model: MODEL,
+          messages,
+          tools: TOOLS,
+          turn: 0,
+          step,
+          trace,
+          webSearchBudget,
+        });
+      webSearchBudget = Math.max(
+        0,
+        webSearchBudget - (webSearchBudgetConsumed ?? 0),
+      );
       messages.push(message);
 
       if (toolCalls.length === 0) {
