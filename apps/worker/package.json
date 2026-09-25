@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "tsx watch --env-file-if-exists=../../.env --env-file-if-exists=../../.env.braintrust --env-file-if-exists=.env src/worker.ts",
     "lint": "eslint . --max-warnings 0",
-    "check-types": "tsc --noEmit"
+    "check-types": "tsc --noEmit",
+    "test": "tsx --test \"src/**/*.test.ts\""
   },
   "dependencies": {
     "@repo/types": "workspace:*",
