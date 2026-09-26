@@ -5,7 +5,8 @@
     "OPENROUTER_API_KEY",
     "BRAINTRUST_API_KEY",
     "BRAINTRUST_PROJECT",
-    "TEMPORAL_ADDRESS"
+    "TEMPORAL_ADDRESS",
+    "LINQ_API_KEY"
   ],
   "tasks": {
     "build": {

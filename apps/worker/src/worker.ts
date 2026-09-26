@@ -2,6 +2,7 @@ import { NativeConnection, Worker } from "@temporalio/worker";
 
 import { TASK_QUEUE } from "@repo/types";
 import { flushLogs, record, startTrace } from "./services/braintrust";
+import { createLinqActivities } from "./services/linq";
 import { createOpenRouterActivities } from "./services/openrouter";
 import { executeTool } from "./tools";
 
@@ -20,6 +21,7 @@ async function main(): Promise<void> {
         executeTool,
         startTrace,
         record,
+        ...createLinqActivities(),
       },
     });
 

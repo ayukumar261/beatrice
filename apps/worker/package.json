@@ -9,6 +9,7 @@
     "test": "tsx --test \"src/**/*.test.ts\""
   },
   "dependencies": {
+    "@linqapp/sdk": "^0.75.1",
     "@repo/types": "workspace:*",
     "@temporalio/activity": "^1.23.0",
     "@temporalio/common": "^1.23.0",
