@@ -43,13 +43,3 @@ export interface ToolDefinition {
     parameters: Record<string, unknown>;
   };
 }
-
-/** Workflow signature for the `corbyn` agent. */
-export interface CorbynInput {
-  task: string;
-}
-
-export interface CorbynOutput {
-  text: string;
-  steps: number;
-}
