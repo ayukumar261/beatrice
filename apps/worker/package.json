@@ -21,6 +21,7 @@
   "devDependencies": {
     "@repo/eslint-config": "workspace:*",
     "@repo/typescript-config": "workspace:*",
+    "@temporalio/testing": "^1.23.0",
     "@types/node": "^26.4.0",
     "eslint": "10.9.1",
     "tsx": "^4.23.13",
