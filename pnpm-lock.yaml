@@ -51,6 +51,9 @@ importers:
       '@repo/typescript-config':
         specifier: workspace:*
         version: link:../../packages/typescript-config
+      '@temporalio/client':
+        specifier: ^1.23.0
+        version: 1.23.0
       '@temporalio/testing':
         specifier: ^1.23.0
         version: 1.23.0(@swc/helpers@0.5.23)(esbuild@0.28.1)(postcss@8.5.23)

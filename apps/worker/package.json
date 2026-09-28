@@ -6,7 +6,8 @@
     "dev": "tsx watch --env-file-if-exists=../../.env --env-file-if-exists=../../.env.braintrust --env-file-if-exists=.env src/worker.ts",
     "lint": "eslint . --max-warnings 0",
     "check-types": "tsc --noEmit",
-    "test": "tsx --test \"src/**/*.test.ts\""
+    "test": "tsx --test \"src/**/*.test.ts\"",
+    "test:integration": "tsx --test \"src/**/*.integration.ts\""
   },
   "dependencies": {
     "@linqapp/sdk": "^0.75.1",
@@ -21,6 +22,7 @@
   "devDependencies": {
     "@repo/eslint-config": "workspace:*",
     "@repo/typescript-config": "workspace:*",
+    "@temporalio/client": "^1.23.0",
     "@temporalio/testing": "^1.23.0",
     "@types/node": "^26.4.0",
     "eslint": "10.9.1",
