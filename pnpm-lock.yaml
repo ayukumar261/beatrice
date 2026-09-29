@@ -18,6 +18,37 @@ importers:
         specifier: 7.0.2
         version: 7.0.2
 
+  apps/gateway:
+    dependencies:
+      '@linqapp/sdk':
+        specifier: ^0.75.1
+        version: 0.75.1
+      '@repo/types':
+        specifier: workspace:*
+        version: link:../../packages/types
+      '@temporalio/client':
+        specifier: ^1.23.0
+        version: 1.23.0
+    devDependencies:
+      '@repo/eslint-config':
+        specifier: workspace:*
+        version: link:../../packages/eslint-config
+      '@repo/typescript-config':
+        specifier: workspace:*
+        version: link:../../packages/typescript-config
+      '@types/node':
+        specifier: ^26.4.0
+        version: 26.4.0
+      eslint:
+        specifier: 10.9.1
+        version: 10.9.1(supports-color@8.1.1)
+      tsx:
+        specifier: ^4.23.13
+        version: 4.23.13
+      typescript:
+        specifier: 7.0.2
+        version: 7.0.2
+
   apps/worker:
     dependencies:
       '@linqapp/sdk':

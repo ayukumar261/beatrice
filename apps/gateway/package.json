@@ -1,0 +1,23 @@
+{
+  "name": "gateway",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "lint": "eslint . --max-warnings 0",
+    "check-types": "tsc --noEmit",
+    "test": "tsx --test \"src/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@linqapp/sdk": "^0.75.1",
+    "@repo/types": "workspace:*",
+    "@temporalio/client": "^1.23.0"
+  },
+  "devDependencies": {
+    "@repo/eslint-config": "workspace:*",
+    "@repo/typescript-config": "workspace:*",
+    "@types/node": "^26.4.0",
+    "eslint": "10.9.1",
+    "tsx": "^4.23.13",
+    "typescript": "7.0.2"
+  }
+}
