@@ -6,7 +6,13 @@
     "BRAINTRUST_API_KEY",
     "BRAINTRUST_PROJECT",
     "TEMPORAL_ADDRESS",
-    "LINQ_API_KEY"
+    "LINQ_API_KEY",
+    "LINQ_WEBHOOK_SECRET",
+    "LINQ_PHONE_NUMBER",
+    "LINQ_ALLOWED_NUMBERS",
+    "LINQ_WEBHOOK_SUBSCRIPTION_ID",
+    "LINQ_HOST",
+    "LINQ_PORT"
   ],
   "tasks": {
     "build": {
