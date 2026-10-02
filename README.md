@@ -1,159 +1,100 @@
-# Turborepo starter
+# Beatrice
 
-This Turborepo starter is maintained by the Turborepo core team.
+A text-message interface to Corbyn, the project's LLM agent. Linq receives messages, Temporal keeps the conversation durable, and OpenRouter generates replies using the existing agent and tools.
 
-## Using this example
+## Run locally
 
-Run the following command:
+Requires Node.js 24+, pnpm, Docker, an OpenRouter API key, and a Linq API account with a messaging line.
 
-```sh
-npx create-turbo@latest
+1. Install dependencies and start Temporal:
+
+   ```sh
+   pnpm install
+   docker compose up -d
+   ```
+
+2. Add the following values to the root `.env`. Use `.env.example` as a reference; preserve any keys already configured locally.
+
+   ```dotenv
+   OPENROUTER_API_KEY=your-openrouter-key
+   LINQ_API_KEY=your-linq-api-key
+   LINQ_ALLOWED_NUMBERS=+15551234567
+   ```
+
+   `LINQ_ALLOWED_NUMBERS` is your **personal phone**, with country code. The local environment is already configured with the owner's requested personal number. `LINQ_PHONE_NUMBER` is the **separate assistant number** assigned to your Linq account. Do not use the same number for both. With multiple Linq lines, set `LINQ_PHONE_NUMBER` explicitly; setup selects the line automatically when the account has exactly one.
+
+3. Start the project's named Cloudflare tunnel in another terminal:
+
+   ```sh
+   pnpm linq:tunnel
+   ```
+
+   The tunnel configuration in `cloudflare/config.yml` routes `corbyn.ai/webhooks/linq` and `corbyn.ai/healthz` to port 3001. It requires `cloudflared`, the local ignored `cloudflare/tunnel-credentials.json`, and a proxied DNS record pointing `corbyn.ai` to the tunnel. Other paths return `404`.
+
+   Register the webhook after the DNS record resolves:
+
+   ```sh
+   pnpm linq:setup https://corbyn.ai/webhooks/linq
+   ```
+
+   Setup checks your Linq lines, subscribes to `message.received`, pins webhook version `2026-02-03`, and saves the signing secret and subscription ID to the root `.env` without printing the secret. Running it again updates the saved subscription. An existing subscription requires its original signing secret.
+
+4. Start the worker (`apps/worker`) and the webhook gateway (`apps/gateway`):
+
+   ```sh
+   pnpm dev
+   ```
+
+5. Text the assistant number printed by setup from your allowed personal phone. The local account uses Linq's shared number **+1 205-503-0476**. Your phone must send the first message before the shared line can reply. Follow-up messages share conversation context. Send `/reset` to begin a fresh conversation.
+
+The computer, worker, Temporal, and tunnel must remain running to receive replies locally. For continuous availability, run them on an always-on host with a stable HTTPS URL. Set `LINQ_HOST=0.0.0.0` when a container or reverse proxy needs to reach the webhook; the default is localhost. `LINQ_PORT` defaults to `3001`.
+
+The worker requires `OPENROUTER_API_KEY` and `LINQ_API_KEY` to start. The gateway also requires the signing secret, assistant number, and allowed personal numbers.
+
+## Message flow
+
+```text
+Your phone → Linq → POST /webhooks/linq → Temporal → Corbyn/OpenRouter
+Your phone ← Linq ← reply activity     ← Temporal ← LLM response
 ```
 
-## What's inside?
+- The official Linq SDK verifies signatures and rejects stale requests. Unsigned requests receive `401`.
+- Only direct inbound messages from `LINQ_ALLOWED_NUMBERS` to `LINQ_PHONE_NUMBER` are accepted. Group chats, outgoing events, opt-outs, and reconciled historical messages are ignored.
+- The server returns `200` after Temporal stores the message, without waiting for the LLM. Queue failures return `503` so Linq can retry.
+- Each Linq chat has one conversation workflow. It processes messages serially, remembers the latest 20 complete LLM turns, and deduplicates recent event/message IDs. The last 2,000 messages' IDs survive workflow rollover and worker restarts.
+- Outgoing replies have a stable Linq idempotency key. Temporary send errors retry for up to five minutes; permanent failures are logged without blocking later turns.
+- Text and links are supported. Media-only messages receive a request for a text description. Attachments are not downloaded or sent to the model.
+- Linq chooses the available messaging transport, including SMS, iMessage, and RCS. Replies go to the same chat.
 
-This Turborepo includes the following packages/apps:
+`GET /healthz` checks that the HTTP listener is alive. It does not probe Linq, OpenRouter, or Temporal. Temporal's local UI is available at [localhost:8080](http://localhost:8080).
 
-### Apps and Packages
+The agent's existing Braintrust tracing is retained. `.env.braintrust` is loaded if present. `/reset` clears the context used for future replies; it does not erase stored Temporal history or traces.
 
-- `docs`: a [Next.js](https://nextjs.org/) app
-- `web`: another [Next.js](https://nextjs.org/) app
-- `@repo/ui`: a stub React component library shared by both `web` and `docs` applications
-- `@repo/eslint-config`: `eslint` configurations (includes `@next/eslint-plugin-next` and `eslint-config-prettier`)
-- `@repo/typescript-config`: `tsconfig.json`s used throughout the monorepo
+## Web search and conversation memory
 
-Each package/app is 100% [TypeScript](https://www.typescriptlang.org/).
+Web search is always enabled through OpenRouter using Parallel's `fast` mode and the existing OpenRouter key. The model searches for explicit lookups and information that needs current verification. Each search retrieves at most three results with up to 1,500 characters per result. Each conversation turn allows up to 50 searches shared across model calls, with a fresh allowance for the next turn; failed activity retries may repeat searches. Missing or inconsistent search usage consumes the remaining allowance conservatively. Sources are retained as plain URLs in replies, and usage and cost are included in Braintrust traces.
 
-### Utilities
+Parallel Fast is currently $0.001 per search, plus model tokens. See [OpenRouter's current search pricing](https://openrouter.ai/docs/guides/features/server-tools/web-search#pricing).
 
-This Turborepo has some additional tools already setup for you:
+SMS conversations have no inactivity timeout. The next message continues the same chat, using the latest 20 complete LLM turns. Worker restarts preserve that state in Temporal. After 100 processed messages, the workflow starts a new run carrying the conversation state; this does not reset your chat. Send `/reset` to clear the context used for future replies.
 
-- [TypeScript](https://www.typescriptlang.org/) for static type checking
-- [ESLint](https://eslint.org/) for code linting
-- [Prettier](https://prettier.io) for code formatting
+A model request has a 100-second deadline, within a two-minute Temporal activity timeout. Heartbeats run every five seconds during searches and streaming. These request timeouts do not clear conversation memory.
 
-### Build
-
-To build all apps and packages, run the following command:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
+## Validation
 
 ```sh
-cd my-turborepo
-turbo build
+pnpm check-types
+pnpm lint
+pnpm test
+# Requires the local Temporal service (docker compose up -d).
+pnpm test:integration
 ```
 
-Without global `turbo`, use your package manager:
+Unit tests cover webhook authentication, sender/line filtering, malformed requests, body limits, configuration, and outbound API requests. The integration test uses real Temporal with mocked Linq and LLM activities, so it sends no real texts and makes no model API calls.
 
-```sh
-cd my-turborepo
-npx turbo build
-yarn exec turbo build
-pnpm exec turbo build
-```
+## References
 
-You can build a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
-
-```sh
-turbo build --filter=docs
-```
-
-Without global `turbo`:
-
-```sh
-npx turbo build --filter=docs
-yarn exec turbo build --filter=docs
-pnpm exec turbo build --filter=docs
-```
-
-### Develop
-
-To develop all apps and packages, run the following command:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
-
-```sh
-cd my-turborepo
-turbo dev
-```
-
-Without global `turbo`, use your package manager:
-
-```sh
-cd my-turborepo
-npx turbo dev
-yarn exec turbo dev
-pnpm exec turbo dev
-```
-
-You can develop a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
-
-```sh
-turbo dev --filter=web
-```
-
-Without global `turbo`:
-
-```sh
-npx turbo dev --filter=web
-yarn exec turbo dev --filter=web
-pnpm exec turbo dev --filter=web
-```
-
-### Remote Caching
-
-> [!TIP]
-> Vercel Remote Cache is free for all plans. Get started today at [vercel.com](https://vercel.com/signup?utm_source=remote-cache-sdk&utm_campaign=free_remote_cache).
-
-Turborepo can use a technique known as [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching) to share cache artifacts across machines, enabling you to share build caches with your team and CI/CD pipelines.
-
-By default, Turborepo will cache locally. To enable Remote Caching you will need an account with Vercel. If you don't have an account you can [create one](https://vercel.com/signup?utm_source=turborepo-examples), then enter the following commands:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
-
-```sh
-cd my-turborepo
-turbo login
-```
-
-Without global `turbo`, use your package manager:
-
-```sh
-cd my-turborepo
-npx turbo login
-yarn exec turbo login
-pnpm exec turbo login
-```
-
-This will authenticate the Turborepo CLI with your [Vercel account](https://vercel.com/docs/concepts/personal-accounts/overview).
-
-Next, you can link your Turborepo to your Remote Cache by running the following command from the root of your Turborepo:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
-
-```sh
-turbo link
-```
-
-Without global `turbo`:
-
-```sh
-npx turbo link
-yarn exec turbo link
-pnpm exec turbo link
-```
-
-## Useful Links
-
-Learn more about the power of Turborepo:
-
-- [Tasks](https://turborepo.dev/docs/crafting-your-repository/running-tasks)
-- [Caching](https://turborepo.dev/docs/crafting-your-repository/caching)
-- [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching)
-- [Filtering](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters)
-- [Configuration Options](https://turborepo.dev/docs/reference/configuration)
-- [CLI Usage](https://turborepo.dev/docs/reference/command-line-reference)
+- [Linq webhook authentication and delivery](https://docs.linqapp.com/channel/imessage/guides/webhooks/)
+- [Linq message event format](https://docs.linqapp.com/channel/imessage/guides/webhooks/events/)
+- [Send a message to an existing Linq chat](https://docs.linqapp.com/channel/imessage/api/resources/chats/subresources/messages/methods/send/)
+- [Linq dashboard](https://dashboard.linqapp.com/)
