@@ -46,3 +46,6 @@ yarn-error.log*
 !.fp/remote.toml
 FP_CLAUDE.md
 CLAUDE.md
+
+# Local Cloudflare Tunnel credentials
+cloudflare/tunnel-credentials.json

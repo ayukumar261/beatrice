@@ -1,0 +1,8 @@
+tunnel: a15e8ecc-f7ef-4414-b78a-2bc2d91e33a5
+credentials-file: ./cloudflare/tunnel-credentials.json
+
+ingress:
+  - hostname: corbyn.ai
+    path: ^/(webhooks/linq|healthz)$
+    service: http://127.0.0.1:3001
+  - service: http_status:404
