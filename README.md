@@ -23,21 +23,15 @@ Requires Node.js 24+, pnpm, Docker, an OpenRouter API key, and a Linq API accoun
 
    `LINQ_ALLOWED_NUMBERS` is your **personal phone**, with country code. The local environment is already configured with the owner's requested personal number. `LINQ_PHONE_NUMBER` is the **separate assistant number** assigned to your Linq account. Do not use the same number for both. With multiple Linq lines, set `LINQ_PHONE_NUMBER` explicitly; setup selects the line automatically when the account has exactly one.
 
-3. Start the project's named Cloudflare tunnel in another terminal:
+3. For local webhook testing, expose port 3001 through your own development HTTPS URL and register it using a separate Linq test account or subscription:
 
    ```sh
-   pnpm linq:tunnel
-   ```
-
-   The tunnel configuration in `deploy/cloudflare.yml` routes `corbyn.ai/webhooks/linq` and `corbyn.ai/healthz` to port 3001. It requires `cloudflared`, the local ignored `deploy/tunnel-credentials.json`, and a proxied DNS record pointing `corbyn.ai` to the tunnel. Other paths return `404`.
-
-   Register the webhook after the DNS record resolves:
-
-   ```sh
-   pnpm linq:setup https://corbyn.ai/webhooks/linq
+   pnpm linq:setup https://YOUR-DEVELOPMENT-HOST/webhooks/linq
    ```
 
    Setup checks your Linq lines, subscribes to `message.received`, pins webhook version `2026-02-03`, and saves the signing secret and subscription ID to the root `.env` without printing the secret. Running it again updates the saved subscription. An existing subscription requires its original signing secret.
+
+   The production webhook uses `https://linq.ayukumar261.com/webhooks/linq`. Do not repoint its saved subscription when testing locally unless you intend to take production offline.
 
 4. Start the worker (`apps/worker`) and the webhook gateway (`apps/gateway`):
 
@@ -55,11 +49,17 @@ The worker requires `OPENROUTER_API_KEY` and `LINQ_API_KEY` to start. The gatewa
 
 Create a **Docker Compose** service with Git source `https://github.com/ayukumar261/beatrice.git`, branch `main`, and Compose Path `./docker-compose.dokploy.yml`.
 
-In its Environment tab, set `POSTGRES_PASSWORD` to a random password and supply `LINQ_API_KEY`, `LINQ_WEBHOOK_SECRET`, `LINQ_PHONE_NUMBER`, `LINQ_ALLOWED_NUMBERS`, `OPENROUTER_API_KEY`, and `BRAINTRUST_API_KEY` from the existing local configuration. `BRAINTRUST_PROJECT` defaults to `platform`. Set `TUNNEL_CRED_CONTENTS` to the contents of the ignored `deploy/tunnel-credentials.json`, on one line enclosed in single quotes. Keep these values in Dokploy; never commit them or include them in an image.
+In its Environment tab, set `POSTGRES_PASSWORD` to a random password and supply `LINQ_API_KEY`, `LINQ_WEBHOOK_SECRET`, `LINQ_PHONE_NUMBER`, `LINQ_ALLOWED_NUMBERS`, `OPENROUTER_API_KEY`, and `BRAINTRUST_API_KEY` from the existing local configuration. `BRAINTRUST_PROJECT` defaults to `platform`. Keep these values in Dokploy; never commit them or include them in an image.
 
-The deployment starts PostgreSQL, Temporal 1.29.1, the gateway, the worker, and a Cloudflare Tunnel connector. Database storage uses the persistent `postgres-data` Docker volume. No database, Temporal, or app ports are published on the host. The existing tunnel exposes only `https://corbyn.ai/webhooks/linq` and `https://corbyn.ai/healthz`, so DNS and the Linq webhook subscription can stay as configured.
+The deployment starts PostgreSQL, Temporal 1.29.1, the gateway, and the worker. Database storage uses the persistent `postgres-data` Docker volume. No database, Temporal, or app ports are published on the host. Only the gateway joins `dokploy-network`; it also stays on the private Compose network to reach Temporal.
 
-Stop the local connector for this same tunnel before the server connector starts; running both with separate databases can split incoming messages between them. Local database contents are not migrated automatically. After deploying, verify that PostgreSQL, Temporal, and the gateway are healthy, the worker logs show it polling the task queue, and `GET https://corbyn.ai/healthz` returns `200`. An unsigned webhook POST must return `401`.
+In Dokploy's Domains tab, add `linq.ayukumar261.com` with service `gateway`, container port `3001`, path `/`, and HTTPS with Let's Encrypt. DNS must point to the Dokploy server. Deploy, then register the production webhook:
+
+```sh
+pnpm linq:setup https://linq.ayukumar261.com/webhooks/linq
+```
+
+Local database contents are not migrated automatically. After deploying, verify that PostgreSQL, Temporal, and the gateway are healthy, the worker logs show it polling the task queue, and `GET https://linq.ayukumar261.com/healthz` returns `200`. An unsigned webhook POST must return `401`. No local tunnel or computer process is needed for production.
 
 Redeploy after pushing changes. PostgreSQL data survives ordinary redeployments; configure volume backups in Dokploy before relying on the server for irreplaceable conversation history. The Temporal dashboard is deliberately not exposed publicly.
 

@@ -8,7 +8,6 @@
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "check-types": "turbo run check-types",
     "linq:setup": "pnpm --filter gateway linq:setup",
-    "linq:tunnel": "cloudflared tunnel --config deploy/cloudflare.yml run",
     "test": "turbo run test",
     "test:integration": "pnpm --filter worker test:integration"
   },
