@@ -49,11 +49,13 @@ The worker requires `OPENROUTER_API_KEY` and `LINQ_API_KEY` to start. The gatewa
 
 Create a **Docker Compose** service with Git source `https://github.com/ayukumar261/beatrice.git`, branch `main`, and Compose Path `./docker-compose.dokploy.yml`.
 
-In its Environment tab, set `POSTGRES_PASSWORD` to a random password and supply `LINQ_API_KEY`, `LINQ_WEBHOOK_SECRET`, `LINQ_PHONE_NUMBER`, `LINQ_ALLOWED_NUMBERS`, `OPENROUTER_API_KEY`, and `BRAINTRUST_API_KEY` from the existing local configuration. `BRAINTRUST_PROJECT` defaults to `platform`. Keep these values in Dokploy; never commit them or include them in an image.
+In its Environment tab, set `POSTGRES_PASSWORD` to a random password and supply `LINQ_API_KEY`, `LINQ_WEBHOOK_SECRET`, `LINQ_PHONE_NUMBER`, `LINQ_ALLOWED_NUMBERS`, `OPENROUTER_API_KEY`, and `BRAINTRUST_API_KEY` from the existing local configuration. `BRAINTRUST_PROJECT` defaults to `platform`. Set `TUNNEL_CRED_CONTENTS` to the single-line JSON contents of the ignored `deploy/tunnel-credentials.json`, enclosed in single quotes. Keep these values in Dokploy; never commit them or include them in an image.
 
-The deployment starts PostgreSQL, Temporal 1.29.1, the gateway, and the worker. Database storage uses the persistent `postgres-data` Docker volume. No database, Temporal, or app ports are published on the host. Only the gateway joins `dokploy-network`; it also stays on the private Compose network to reach Temporal.
+The deployment starts PostgreSQL, Temporal 1.29.1, the gateway, the worker, and a Cloudflare Tunnel connector. Database storage uses the persistent `postgres-data` Docker volume. No database, Temporal, or app ports are published on the host. The gateway also joins `dokploy-network` for Dokploy's optional internal domain route.
 
-In Dokploy's Domains tab, add `linq.ayukumar261.com` with service `gateway`, container port `3001`, and path `/`. The existing wildcard DNS record points to the server's encrypted `dokploy` Cloudflare Tunnel. Cloudflare provides public HTTPS; leave Dokploy's HTTPS toggle off for the internal tunnel route to avoid a redirect loop. If deploying directly without that tunnel, enable Dokploy HTTPS with Let's Encrypt instead. Deploy, then register the production webhook:
+The explicit proxied CNAME `linq.ayukumar261.com` points to `a15e8ecc-f7ef-4414-b78a-2bc2d91e33a5.cfargotunnel.com` (the `beatrice-sms` tunnel). This overrides the domain's wildcard route and sends traffic straight to `gateway:3001` through the connector in this stack. Cloudflare provides public HTTPS and encrypts the connection to the server. The tunnel exposes only `/webhooks/linq` and `/healthz`; other paths return `404`. Stop any other connector for this tunnel before deploying against a separate database.
+
+Dokploy's optional domain entry uses service `gateway`, port `3001`, and path `/` with its HTTPS toggle off; public HTTPS is handled by Cloudflare. Deploy, then register the production webhook:
 
 ```sh
 pnpm linq:setup https://linq.ayukumar261.com/webhooks/linq

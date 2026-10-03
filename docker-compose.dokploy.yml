@@ -95,6 +95,36 @@ services:
       BRAINTRUST_API_KEY: ${BRAINTRUST_API_KEY:?Set BRAINTRUST_API_KEY in Dokploy}
       BRAINTRUST_PROJECT: ${BRAINTRUST_PROJECT:-platform}
 
+  cloudflared:
+    image: cloudflare/cloudflared:2025.11.1
+    restart: unless-stopped
+    command:
+      [
+        "tunnel",
+        "--no-autoupdate",
+        "--config",
+        "/etc/cloudflared/config.yml",
+        "run",
+      ]
+    depends_on:
+      gateway:
+        condition: service_healthy
+    environment:
+      TUNNEL_CRED_CONTENTS: ${TUNNEL_CRED_CONTENTS:?Set tunnel credentials in Dokploy}
+    configs:
+      - source: cloudflared-config
+        target: /etc/cloudflared/config.yml
+
+configs:
+  cloudflared-config:
+    content: |
+      tunnel: a15e8ecc-f7ef-4414-b78a-2bc2d91e33a5
+      ingress:
+        - hostname: linq.ayukumar261.com
+          path: ^/(webhooks/linq|healthz)$$
+          service: http://gateway:3001
+        - service: http_status:404
+
 networks:
   default:
   dokploy-network:
