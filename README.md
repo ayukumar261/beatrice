@@ -63,7 +63,7 @@ pnpm linq:setup https://linq.ayukumar261.com/webhooks/linq
 
 Local database contents are not migrated automatically. After deploying, verify that PostgreSQL, Temporal, and the gateway are healthy, the worker logs show it polling the task queue, and `GET https://linq.ayukumar261.com/healthz` returns `200`. An unsigned webhook POST must return `401`. No local tunnel or computer process is needed for production.
 
-Redeploy after pushing changes. PostgreSQL data survives ordinary redeployments; configure volume backups in Dokploy before relying on the server for irreplaceable conversation history. The Temporal dashboard is deliberately not exposed publicly.
+Pushes to `main` automatically deploy through the repository's GitHub push webhook, with Autodeploy enabled in Dokploy. Other branches do not trigger this deployment. PostgreSQL data survives ordinary redeployments; configure volume backups in Dokploy before relying on the server for irreplaceable conversation history. The Temporal dashboard is deliberately not exposed publicly.
 
 ## Message flow
 
