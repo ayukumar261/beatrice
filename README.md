@@ -29,7 +29,7 @@ Requires Node.js 24+, pnpm, Docker, an OpenRouter API key, and a Linq API accoun
    pnpm linq:tunnel
    ```
 
-   The tunnel configuration in `cloudflare/config.yml` routes `corbyn.ai/webhooks/linq` and `corbyn.ai/healthz` to port 3001. It requires `cloudflared`, the local ignored `cloudflare/tunnel-credentials.json`, and a proxied DNS record pointing `corbyn.ai` to the tunnel. Other paths return `404`.
+   The tunnel configuration in `deploy/cloudflare.yml` routes `corbyn.ai/webhooks/linq` and `corbyn.ai/healthz` to port 3001. It requires `cloudflared`, the local ignored `deploy/tunnel-credentials.json`, and a proxied DNS record pointing `corbyn.ai` to the tunnel. Other paths return `404`.
 
    Register the webhook after the DNS record resolves:
 

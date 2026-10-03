@@ -1,5 +1,5 @@
 tunnel: a15e8ecc-f7ef-4414-b78a-2bc2d91e33a5
-credentials-file: ./cloudflare/tunnel-credentials.json
+credentials-file: ./deploy/tunnel-credentials.json
 
 ingress:
   - hostname: corbyn.ai
