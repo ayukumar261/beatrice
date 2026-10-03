@@ -1,6 +1,6 @@
 # Beatrice
 
-A text-message interface to Corbyn, the project's LLM agent. Linq receives messages, Temporal keeps the conversation durable, and OpenRouter generates replies using the existing agent and tools.
+A text-message interface to Corbyn, the project's LLM agent. Linq receives messages, Temporal keeps the conversation durable, and OpenRouter generates replies with GPT-5.6 Luna (`openai/gpt-5.6-luna`) using the existing agent and tools.
 
 ## Run locally
 

@@ -16,7 +16,7 @@ import type { createLinqActivities } from "../../services/linq";
 import type { createOpenRouterActivities } from "../../services/openrouter";
 import type * as tools from "../../tools";
 
-const MODEL = "qwen/qwen3.7-flash";
+const MODEL = "openai/gpt-5.6-luna";
 const TOOLS = ["get_time"];
 /** Model calls allowed in one turn before it fails. */
 const MAX_STEPS = 8;
