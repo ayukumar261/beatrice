@@ -16,4 +16,5 @@ RUN pnpm install --frozen-lockfile
 COPY --chown=node:node . .
 ENV NODE_ENV=production
 USER node
-CMD ["pnpm", "--filter", "gateway", "start"]
+WORKDIR /app/apps/gateway
+CMD ["node", "--import", "tsx", "src/index.ts"]

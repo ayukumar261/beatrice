@@ -52,7 +52,8 @@ services:
     build: .
     restart: unless-stopped
     init: true
-    command: ["pnpm", "--filter", "gateway", "start"]
+    working_dir: /app/apps/gateway
+    command: ["node", "--import", "tsx", "src/index.ts"]
     networks:
       - default
       - dokploy-network
@@ -84,7 +85,8 @@ services:
     restart: unless-stopped
     init: true
     stop_grace_period: 2m
-    command: ["pnpm", "--filter", "worker", "start"]
+    working_dir: /app/apps/worker
+    command: ["node", "--import", "tsx", "src/worker.ts"]
     depends_on:
       temporal:
         condition: service_healthy
