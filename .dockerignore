@@ -1,0 +1,12 @@
+.git
+**/node_modules
+**/.turbo
+**/coverage
+**/dist
+**/.env*
+**/*.pem
+**/*credentials*.json
+.DS_Store
+.agents
+.codex
+.fp

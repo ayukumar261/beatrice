@@ -51,6 +51,18 @@ The computer, worker, Temporal, and tunnel must remain running to receive replie
 
 The worker requires `OPENROUTER_API_KEY` and `LINQ_API_KEY` to start. The gateway also requires the signing secret, assistant number, and allowed personal numbers.
 
+## Deploy on Dokploy
+
+Create a **Docker Compose** service with Git source `https://github.com/ayukumar261/beatrice.git`, branch `main`, and Compose Path `./docker-compose.dokploy.yml`.
+
+In its Environment tab, set `POSTGRES_PASSWORD` to a random password and supply `LINQ_API_KEY`, `LINQ_WEBHOOK_SECRET`, `LINQ_PHONE_NUMBER`, `LINQ_ALLOWED_NUMBERS`, `OPENROUTER_API_KEY`, and `BRAINTRUST_API_KEY` from the existing local configuration. `BRAINTRUST_PROJECT` defaults to `platform`. Set `TUNNEL_CRED_CONTENTS` to the contents of the ignored `deploy/tunnel-credentials.json`, on one line enclosed in single quotes. Keep these values in Dokploy; never commit them or include them in an image.
+
+The deployment starts PostgreSQL, Temporal 1.29.1, the gateway, the worker, and a Cloudflare Tunnel connector. Database storage uses the persistent `postgres-data` Docker volume. No database, Temporal, or app ports are published on the host. The existing tunnel exposes only `https://corbyn.ai/webhooks/linq` and `https://corbyn.ai/healthz`, so DNS and the Linq webhook subscription can stay as configured.
+
+Stop the local connector for this same tunnel before the server connector starts; running both with separate databases can split incoming messages between them. Local database contents are not migrated automatically. After deploying, verify that PostgreSQL, Temporal, and the gateway are healthy, the worker logs show it polling the task queue, and `GET https://corbyn.ai/healthz` returns `200`. An unsigned webhook POST must return `401`.
+
+Redeploy after pushing changes. PostgreSQL data survives ordinary redeployments; configure volume backups in Dokploy before relying on the server for irreplaceable conversation history. The Temporal dashboard is deliberately not exposed publicly.
+
 ## Message flow
 
 ```text
