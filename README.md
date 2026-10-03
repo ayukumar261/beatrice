@@ -53,7 +53,7 @@ In its Environment tab, set `POSTGRES_PASSWORD` to a random password and supply 
 
 The deployment starts PostgreSQL, Temporal 1.29.1, the gateway, and the worker. Database storage uses the persistent `postgres-data` Docker volume. No database, Temporal, or app ports are published on the host. Only the gateway joins `dokploy-network`; it also stays on the private Compose network to reach Temporal.
 
-In Dokploy's Domains tab, add `linq.ayukumar261.com` with service `gateway`, container port `3001`, path `/`, and HTTPS with Let's Encrypt. DNS must point to the Dokploy server. Deploy, then register the production webhook:
+In Dokploy's Domains tab, add `linq.ayukumar261.com` with service `gateway`, container port `3001`, and path `/`. The existing wildcard DNS record points to the server's encrypted `dokploy` Cloudflare Tunnel. Cloudflare provides public HTTPS; leave Dokploy's HTTPS toggle off for the internal tunnel route to avoid a redirect loop. If deploying directly without that tunnel, enable Dokploy HTTPS with Let's Encrypt instead. Deploy, then register the production webhook:
 
 ```sh
 pnpm linq:setup https://linq.ayukumar261.com/webhooks/linq
