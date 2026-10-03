@@ -8,7 +8,7 @@ const WEBHOOK_VERSION = "2026-02-03";
 
 /**
  * Checks a verified webhook's envelope and routes it by event type. Returns
- * null for events Corbyn ignores; throws when the payload is malformed.
+ * null for events Beatrice ignores; throws when the payload is malformed.
  */
 export function parseInboundEvent(
   value: unknown,

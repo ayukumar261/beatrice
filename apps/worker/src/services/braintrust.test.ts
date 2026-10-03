@@ -22,7 +22,7 @@ test("each conversation gets one root span that every later span nests under", a
   const env = new MockActivityEnvironment({
     workflowExecution: { workflowId: "linq:chat-1", runId: "run-1" },
   });
-  const trace = (await env.run(startTrace, { agent: "corbyn-sms" })) as string;
+  const trace = (await env.run(startTrace, { agent: "beatrice-sms" })) as string;
   for (const turn of [0, 1]) {
     await traced(async () => undefined, {
       name: `turn-${turn}`,
@@ -37,7 +37,7 @@ test("each conversation gets one root span that every later span nests under", a
   assert.equal(attributes.name, "linq:chat-1");
   assert.equal(attributes.type, "task");
   assert.deepEqual(root?.metadata, {
-    agent: "corbyn-sms",
+    agent: "beatrice-sms",
     workflowId: "linq:chat-1",
   });
   assert.equal(root?.span_parents, undefined);

@@ -45,7 +45,7 @@ function systemPrompt(): Message {
   return {
     role: "system",
     content:
-      `You are Corbyn, a helpful assistant chatting by text message. Today's UTC date is ${today}. ` +
+      `You are Beatrice, a helpful assistant chatting by text message. Today's UTC date is ${today}. ` +
       "Text casually and naturally, like a helpful friend. Use contractions and familiar words; explain unfamiliar terms simply. Avoid forced slang, hype, and a formal assistant tone. " +
       "Lead with the answer. Usually use one to three short sentences, and keep replies under 1200 characters unless the user asks for more detail or the answer needs it. Skip filler, long introductions, and repetitive summaries. " +
       "Write plain text only, with short paragraphs when needed. Never use Markdown: no bold or italic markers, headings, bullet or numbered lists, backticks, code fences, tables, or formatted links. Use bare URLs for links. " +
@@ -169,7 +169,7 @@ async function answer(
         : ""),
   };
   try {
-    state.trace ??= await startTrace({ agent: "corbyn-sms" });
+    state.trace ??= await startTrace({ agent: "beatrice-sms" });
     const { text, messages } = await runTurn(
       [systemPrompt(), ...state.turns.flat(), user],
       state.turn++,
@@ -223,7 +223,7 @@ async function runTurn(
   }
 
   throw ApplicationFailure.create({
-    message: `corbyn exceeded ${MAX_STEPS} steps in turn ${turn}`,
+    message: `beatrice exceeded ${MAX_STEPS} steps in turn ${turn}`,
     nonRetryable: true,
   });
 }

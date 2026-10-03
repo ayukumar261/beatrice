@@ -1,6 +1,6 @@
 # Beatrice
 
-A text-message interface to Corbyn, the project's LLM agent. Linq receives messages, Temporal keeps the conversation durable, and OpenRouter generates replies with GPT-5.6 Luna (`openai/gpt-5.6-luna`) using the existing agent and tools.
+A text-message interface to Beatrice, the project's LLM agent. Linq receives messages, Temporal keeps the conversation durable, and OpenRouter generates replies with GPT-5.6 Luna (`openai/gpt-5.6-luna`) using the existing agent and tools.
 
 ## Run locally
 
@@ -68,7 +68,7 @@ Pushes to `main` automatically deploy through the repository's GitHub push webho
 ## Message flow
 
 ```text
-Your phone → Linq → POST /webhooks/linq → Temporal → Corbyn/OpenRouter
+Your phone → Linq → POST /webhooks/linq → Temporal → Beatrice/OpenRouter
 Your phone ← Linq ← reply activity     ← Temporal ← LLM response
 ```
 
