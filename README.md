@@ -84,6 +84,15 @@ Your phone ← Linq ← reply activity     ← Temporal ← LLM response
 
 The agent's existing Braintrust tracing is retained. `.env.braintrust` is loaded if present. `/reset` clears the context used for future replies; it does not erase stored Temporal history or traces.
 
+In the Braintrust project configured by `BRAINTRUST_PROJECT` (default `platform`), open a conversation trace and inspect its `generate` LLM spans. Each span includes the requested `model` in metadata. Successful requests record:
+
+| Metric                | Unit          | Definition                                                                                                                                                                                               |
+| --------------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `time_to_first_token` | seconds       | Request start to the first nonempty text or tool-call name/arguments delta, including HTTP and server-side search waits. Role-only, empty, citation-only, and usage-only chunks do not start this timer. |
+| `tokens_per_second`   | tokens/second | Provider-reported `completion_tokens` divided by the seconds from first qualifying output through stream completion, including trailing usage chunks.                                                    |
+
+These timings use a monotonic clock. TPS is average throughput over the remainder of the stream and follows the provider's completion-token accounting, including any reasoning tokens it counts; it does not measure pure model decode speed. TTFT is available without token usage, but is omitted when no qualifying output arrives. TPS is omitted when completion-token usage is missing or invalid, no qualifying output arrives, the measured duration is zero, or the result is non-finite. Failed or cancelled requests retain error traces without publishing these completion metrics.
+
 ## Web search and conversation memory
 
 Web search is always enabled through OpenRouter using Parallel's `fast` mode and the existing OpenRouter key. The model searches for explicit lookups and information that needs current verification. Each search retrieves at most three results with up to 1,500 characters per result. Each conversation turn allows up to 50 searches shared across model calls, with a fresh allowance for the next turn; failed activity retries may repeat searches. Missing or inconsistent search usage consumes the remaining allowance conservatively. Sources are retained as plain URLs in replies, and usage and cost are included in Braintrust traces.

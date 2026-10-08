@@ -50,6 +50,10 @@ interface Completion extends GenerateOutput {
   usage?: Usage;
   sources: string[];
   webSearches?: number;
+  metrics: {
+    time_to_first_token?: number;
+    tokens_per_second?: number;
+  };
 }
 
 interface Annotation {
@@ -59,16 +63,19 @@ interface Annotation {
 
 export function createOpenRouterActivities(
   apiKey = process.env.OPENROUTER_API_KEY,
+  client?: OpenAI,
 ) {
   if (!apiKey) {
     throw new Error(
       "OPENROUTER_API_KEY is not set — add it to the .env file at the repo root.",
     );
   }
-  const client = new OpenAI({
-    baseURL: "https://openrouter.ai/api/v1",
-    apiKey,
-  });
+  const openrouter =
+    client ??
+    new OpenAI({
+      baseURL: "https://openrouter.ai/api/v1",
+      apiKey,
+    });
 
   async function generate(input: GenerateInput): Promise<GenerateOutput> {
     return traced(
@@ -81,6 +88,7 @@ export function createOpenRouterActivities(
             turn: input.turn,
             step: input.step,
             attempt,
+            model: input.model,
           },
         });
 
@@ -90,14 +98,15 @@ export function createOpenRouterActivities(
         const heartbeat = setInterval(() => ctx.heartbeat(), 5_000);
         heartbeat.unref();
         try {
-          const { usage, sources, webSearches, ...output } = await complete(
-            client,
-            input,
-            AbortSignal.any([
-              ctx.cancellationSignal,
-              AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-            ]),
-          );
+          const { usage, sources, webSearches, metrics, ...output } =
+            await complete(
+              openrouter,
+              input,
+              AbortSignal.any([
+                ctx.cancellationSignal,
+                AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+              ]),
+            );
           currentSpan().log({
             input: input.messages,
             output: output.message,
@@ -105,15 +114,16 @@ export function createOpenRouterActivities(
               sources,
               webSearchBudgetConsumed: output.webSearchBudgetConsumed,
             },
-            ...(usage && {
-              metrics: {
+            metrics: {
+              ...metrics,
+              ...(usage && {
                 prompt_tokens: usage.prompt_tokens,
                 completion_tokens: usage.completion_tokens,
                 tokens: usage.total_tokens,
                 ...(usage.cost !== undefined && { cost: usage.cost }),
                 web_search_requests: webSearches ?? 0,
-              },
-            }),
+              }),
+            },
           });
           return output;
         } catch (err) {
@@ -171,6 +181,7 @@ export async function complete(
     stream_options: { include_usage: true },
   };
   // OpenRouter accepts server tools in addition to the OpenAI SDK's tool types.
+  const startedAt = performance.now();
   const stream = await client.chat.completions.create(
     request as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming,
     { signal, timeout: REQUEST_TIMEOUT_MS, maxRetries: 0 },
@@ -178,6 +189,7 @@ export async function complete(
 
   let text = "";
   let usage: Usage | undefined;
+  let firstTokenAt: number | undefined;
   const sourceUrls = new Set<string>();
   const partials = new Map<
     number,
@@ -186,6 +198,14 @@ export async function complete(
   for await (const chunk of stream) {
     if (chunk.usage) usage = chunk.usage as Usage;
     const delta = chunk.choices[0]?.delta;
+    if (
+      delta?.content ||
+      delta?.tool_calls?.some(
+        (tc) => tc.function?.name || tc.function?.arguments,
+      )
+    ) {
+      firstTokenAt ??= performance.now();
+    }
     if (delta?.content) text += delta.content;
     for (const tc of delta?.tool_calls ?? []) {
       const partial = partials.get(tc.index) ?? {
@@ -211,6 +231,27 @@ export async function complete(
           // Ignore malformed citations without discarding the model's answer.
         }
       }
+    }
+  }
+
+  // The SDK can end iteration quietly on abort; do not report a partial reply
+  // or successful completion metrics for a cancelled/timed-out request.
+  signal?.throwIfAborted();
+  const metrics: Completion["metrics"] = {};
+  if (firstTokenAt !== undefined) {
+    // Include trailing usage chunks in the observed stream duration.
+    const streamDurationSeconds = (performance.now() - firstTokenAt) / 1_000;
+    metrics.time_to_first_token = (firstTokenAt - startedAt) / 1_000;
+    const completionTokens = usage?.completion_tokens;
+    if (
+      completionTokens !== undefined &&
+      Number.isInteger(completionTokens) &&
+      completionTokens >= 0 &&
+      streamDurationSeconds > 0
+    ) {
+      const tokensPerSecond = completionTokens / streamDurationSeconds;
+      if (Number.isFinite(tokensPerSecond))
+        metrics.tokens_per_second = tokensPerSecond;
     }
   }
 
@@ -251,6 +292,7 @@ export async function complete(
     sources,
     webSearches,
     webSearchBudgetConsumed,
+    metrics,
   };
 }
 
