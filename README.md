@@ -45,13 +45,17 @@ The computer, worker, Temporal, and tunnel must remain running to receive replie
 
 The worker requires `OPENROUTER_API_KEY` and `LINQ_API_KEY` to start. The gateway also requires the signing secret, assistant number, and allowed personal numbers.
 
+For local installations created before the project rename, stop the previous Compose stack before starting this one. The `beatrice` project uses a new `beatrice_postgres-data` volume with a fresh database. To retain existing Temporal history instead, migrate the old volume and its PostgreSQL role, default database, and development password to the new `beatrice` settings. Changing PostgreSQL environment variables does not update an existing data directory.
+
 ## Deploy on Dokploy
 
 Create a **Docker Compose** service with Git source `https://github.com/ayukumar261/beatrice.git`, branch `main`, and Compose Path `./docker-compose.dokploy.yml`.
 
-In its Environment tab, set `POSTGRES_PASSWORD` to a random password and supply `LINQ_API_KEY`, `LINQ_WEBHOOK_SECRET`, `LINQ_PHONE_NUMBER`, `LINQ_ALLOWED_NUMBERS`, `OPENROUTER_API_KEY`, and `BRAINTRUST_API_KEY` from the existing local configuration. `BRAINTRUST_PROJECT` defaults to `platform`. Set `TUNNEL_CRED_CONTENTS` to the single-line JSON contents of the ignored `deploy/tunnel-credentials.json`, enclosed in single quotes. Keep these values in Dokploy; never commit them or include them in an image.
+In its Environment tab, set `POSTGRES_PASSWORD` to a random password and supply `LINQ_API_KEY`, `LINQ_WEBHOOK_SECRET`, `LINQ_PHONE_NUMBER`, `LINQ_ALLOWED_NUMBERS`, `OPENROUTER_API_KEY`, and `BRAINTRUST_API_KEY` from the existing local configuration. `BRAINTRUST_PROJECT` defaults to `beatrice`. Set `TUNNEL_CRED_CONTENTS` to the single-line JSON contents of the ignored `deploy/tunnel-credentials.json`, enclosed in single quotes. Keep these values in Dokploy; never commit them or include them in an image.
 
-The deployment starts PostgreSQL, Temporal 1.29.1, the gateway, the worker, and a Cloudflare Tunnel connector. Database storage uses the persistent `postgres-data` Docker volume. No database, Temporal, or app ports are published on the host. The gateway also joins `dokploy-network` for Dokploy's optional internal domain route.
+The deployment starts PostgreSQL, Temporal 1.29.1, the gateway, the worker, and a Cloudflare Tunnel connector. Database storage uses the persistent `beatrice-postgres-data` Docker volume, scoped to the Dokploy Compose project. No database, Temporal, or app ports are published on the host. The gateway also joins `dokploy-network` for Dokploy's optional internal domain route.
+
+The first deployment after the project rename starts with a fresh database, resetting conversation memory and pending Temporal workflows. The previous `postgres-data` volume remains available for recovery; later deployments reuse `beatrice-postgres-data` and retain their data. Dokploy continues to use its configured `POSTGRES_PASSWORD`. Set any explicit `BRAINTRUST_PROJECT` override in Dokploy or local environment files to `beatrice` as well.
 
 The explicit proxied CNAME `linq.ayukumar261.com` points to `a15e8ecc-f7ef-4414-b78a-2bc2d91e33a5.cfargotunnel.com` (the `beatrice-sms` tunnel). This overrides the domain's wildcard route and sends traffic straight to `gateway:3001` through the connector in this stack. Cloudflare provides public HTTPS and encrypts the connection to the server. The tunnel exposes only `/webhooks/linq` and `/healthz`; other paths return `404`. Stop any other connector for this tunnel before deploying against a separate database.
 
@@ -84,7 +88,7 @@ Your phone ← Linq ← reply activity     ← Temporal ← LLM response
 
 The agent's existing Braintrust tracing is retained. `.env.braintrust` is loaded if present. `/reset` clears the context used for future replies; it does not erase stored Temporal history or traces.
 
-In the Braintrust project configured by `BRAINTRUST_PROJECT` (default `platform`), open a conversation trace and inspect its `generate` LLM spans. Each span includes the requested `model` in metadata. Successful requests record:
+In the Braintrust project configured by `BRAINTRUST_PROJECT` (default `beatrice`), open a conversation trace and inspect its `generate` LLM spans. Each span includes the requested `model` in metadata. Successful requests record:
 
 | Metric                | Unit          | Definition                                                                                                                                                                                               |
 | --------------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

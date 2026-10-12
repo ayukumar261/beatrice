@@ -2,7 +2,7 @@ import { Context } from "@temporalio/activity";
 import { flush, initLogger } from "braintrust";
 
 const logger = initLogger({
-  projectName: process.env.BRAINTRUST_PROJECT ?? "platform",
+  projectName: process.env.BRAINTRUST_PROJECT ?? "beatrice",
   apiKey: process.env.BRAINTRUST_API_KEY,
 });
 

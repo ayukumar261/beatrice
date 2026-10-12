@@ -3,13 +3,13 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: platform
+      POSTGRES_USER: beatrice
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in Dokploy}
-      POSTGRES_DB: platform
+      POSTGRES_DB: beatrice
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - beatrice-postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U platform -d platform"]
+      test: ["CMD-SHELL", "pg_isready -U beatrice -d beatrice"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -23,7 +23,7 @@ services:
     environment:
       DB: postgres12
       DB_PORT: "5432"
-      POSTGRES_USER: platform
+      POSTGRES_USER: beatrice
       POSTGRES_PWD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in Dokploy}
       POSTGRES_SEEDS: postgresql
       DBNAME: temporal
@@ -95,7 +95,7 @@ services:
       LINQ_API_KEY: ${LINQ_API_KEY:?Set LINQ_API_KEY in Dokploy}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:?Set OPENROUTER_API_KEY in Dokploy}
       BRAINTRUST_API_KEY: ${BRAINTRUST_API_KEY:?Set BRAINTRUST_API_KEY in Dokploy}
-      BRAINTRUST_PROJECT: ${BRAINTRUST_PROJECT:-platform}
+      BRAINTRUST_PROJECT: ${BRAINTRUST_PROJECT:-beatrice}
 
   cloudflared:
     image: cloudflare/cloudflared:2025.11.1
@@ -133,4 +133,5 @@ networks:
     external: true
 
 volumes:
-  postgres-data:
+  # A fresh volume initializes the renamed database and user on the first deploy.
+  beatrice-postgres-data:

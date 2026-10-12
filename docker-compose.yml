@@ -1,19 +1,19 @@
-name: platform
+name: beatrice
 
 services:
   postgresql:
     image: postgres:16-alpine
     container_name: postgresql
     environment:
-      POSTGRES_USER: platform
-      POSTGRES_PASSWORD: platform
-      POSTGRES_DB: platform
+      POSTGRES_USER: beatrice
+      POSTGRES_PASSWORD: beatrice
+      POSTGRES_DB: beatrice
     ports:
       - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U platform -d platform"]
+      test: ["CMD-SHELL", "pg_isready -U beatrice -d beatrice"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -29,8 +29,8 @@ services:
     environment:
       - DB=postgres12
       - DB_PORT=5432
-      - POSTGRES_USER=platform
-      - POSTGRES_PWD=platform
+      - POSTGRES_USER=beatrice
+      - POSTGRES_PWD=beatrice
       - POSTGRES_SEEDS=postgresql
       - DBNAME=temporal
       - VISIBILITY_DBNAME=temporal_visibility

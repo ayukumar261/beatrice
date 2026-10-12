@@ -1,5 +1,5 @@
 {
-  "name": "platform",
+  "name": "beatrice",
   "private": true,
   "scripts": {
     "build": "turbo run build",
