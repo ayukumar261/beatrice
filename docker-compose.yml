@@ -21,7 +21,7 @@ services:
       - temporal
 
   temporal:
-    image: temporalio/auto-setup:${TEMPORAL_VERSION:-latest}
+    image: temporalio/auto-setup:${TEMPORAL_VERSION:-1.29.1}
     container_name: temporal
     depends_on:
       postgresql:
@@ -34,6 +34,25 @@ services:
       - POSTGRES_SEEDS=postgresql
       - DBNAME=temporal
       - VISIBILITY_DBNAME=temporal_visibility
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "temporal",
+          "operator",
+          "namespace",
+          "describe",
+          "--address",
+          "temporal:7233",
+          "--namespace",
+          "default",
+          "--command-timeout",
+          "5s",
+        ]
+      interval: 10s
+      timeout: 8s
+      retries: 30
+      start_period: 30s
     ports:
       - "7233:7233"
     networks:
@@ -49,6 +68,88 @@ services:
       - TEMPORAL_CORS_ORIGINS=http://localhost:3000
     ports:
       - "8080:8080"
+    networks:
+      - temporal
+
+  gateway:
+    build: .
+    init: true
+    working_dir: /app/apps/gateway
+    command:
+      [
+        "pnpm",
+        "exec",
+        "tsx",
+        "watch",
+        "--include",
+        "src/**/*.ts",
+        "--include",
+        "../../packages/types/src/**/*.ts",
+        "src/index.ts",
+      ]
+    depends_on:
+      temporal:
+        condition: service_healthy
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NODE_ENV: development
+      TEMPORAL_ADDRESS: temporal:7233
+      LINQ_HOST: 0.0.0.0
+      LINQ_PORT: "3001"
+    ports:
+      - "127.0.0.1:${LINQ_PORT:-3001}:3001"
+    volumes:
+      - ./apps/gateway/src:/app/apps/gateway/src:ro
+      - ./packages/types/src:/app/packages/types/src:ro
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3001/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - temporal
+
+  worker:
+    build: .
+    init: true
+    stop_grace_period: 2m
+    working_dir: /app/apps/worker
+    command:
+      [
+        "pnpm",
+        "exec",
+        "tsx",
+        "watch",
+        "--include",
+        "src/**/*.ts",
+        "--include",
+        "../../packages/types/src/**/*.ts",
+        "src/worker.ts",
+      ]
+    depends_on:
+      temporal:
+        condition: service_healthy
+    env_file:
+      - path: .env
+        required: false
+      - path: .env.braintrust
+        required: false
+      - path: apps/worker/.env
+        required: false
+    environment:
+      NODE_ENV: development
+      TEMPORAL_ADDRESS: temporal:7233
+    volumes:
+      - ./apps/worker/src:/app/apps/worker/src:ro
+      - ./packages/types/src:/app/packages/types/src:ro
     networks:
       - temporal
 

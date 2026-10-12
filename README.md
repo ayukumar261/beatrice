@@ -4,13 +4,12 @@ A text-message interface to Beatrice, the project's LLM agent. Linq receives mes
 
 ## Run locally
 
-Requires Node.js 24+, pnpm, Docker, an OpenRouter API key, and a Linq API account with a messaging line.
+Requires Node.js 24+, pnpm, Docker Compose 2.24+, an OpenRouter API key, and a Linq API account with a messaging line.
 
-1. Install dependencies and start Temporal:
+1. Install dependencies for the setup and validation commands:
 
    ```sh
    pnpm install
-   docker compose up -d
    ```
 
 2. Add the following values to the root `.env`. Use `.env.example` as a reference; preserve any keys already configured locally.
@@ -33,15 +32,21 @@ Requires Node.js 24+, pnpm, Docker, an OpenRouter API key, and a Linq API accoun
 
    The production webhook uses `https://linq.ayukumar261.com/webhooks/linq`. Do not repoint its saved subscription when testing locally unless you intend to take production offline.
 
-4. Start the worker (`apps/worker`) and the webhook gateway (`apps/gateway`):
+4. Start PostgreSQL, Temporal, its UI, the gateway, and the worker in Docker:
 
    ```sh
    pnpm dev
    ```
 
+   This runs `docker compose up --build` with attached logs. Use `pnpm dev -d` to run in the background and `pnpm dev:down` to remove the containers while keeping database storage. Both app containers also appear in Docker tools such as lazydocker; select `worker` to read both sides of a conversation.
+
+   Source edits under either app's `src` directory or `packages/types/src` reload the app automatically. Dependencies stay inside the image; rerun `pnpm dev` after changing package manifests or the lockfile. Compose loads the root `.env`; the worker also loads optional `.env.braintrust` and `apps/worker/.env` files in that order. Rerun `pnpm dev` after changing environment files. Optional environment files require [Compose 2.24 or later](https://docs.docker.com/compose/how-tos/environment-variables/set-environment-variables/).
+
 5. Text the assistant number printed by setup from your allowed personal phone. The local account uses Linq's shared number **+1 205-503-0476**. Your phone must send the first message before the shared line can reply. Follow-up messages share conversation context. Send `/reset` to begin a fresh conversation.
 
-The computer, worker, Temporal, and tunnel must remain running to receive replies locally. For continuous availability, run them on an always-on host with a stable HTTPS URL. Set `LINQ_HOST=0.0.0.0` when a container or reverse proxy needs to reach the webhook; the default is localhost. `LINQ_PORT` defaults to `3001`.
+The computer, Docker stack, and development tunnel must remain running to receive replies locally. Compose connects the apps to `temporal:7233` and binds the gateway to `0.0.0.0` inside its container, overriding host-oriented values in `.env`. The gateway is exposed on host `127.0.0.1:${LINQ_PORT:-3001}` for your development tunnel.
+
+To run the apps directly on the host instead, start only infrastructure with `docker compose up -d postgresql temporal temporal-ui`, then run `pnpm dev:host`. Stop the app containers first if they are already running so only one worker processes the local task queue.
 
 The worker requires `OPENROUTER_API_KEY` and `LINQ_API_KEY` to start. The gateway also requires the signing secret, assistant number, and allowed personal numbers.
 
@@ -68,6 +73,10 @@ pnpm linq:setup https://linq.ayukumar261.com/webhooks/linq
 Local database contents are not migrated automatically. After deploying, verify that PostgreSQL, Temporal, and the gateway are healthy, the worker logs show it polling the task queue, and `GET https://linq.ayukumar261.com/healthz` returns `200`. An unsigned webhook POST must return `401`. No local tunnel or computer process is needed for production.
 
 Pushes to `main` automatically deploy through the repository's GitHub push webhook, with Autodeploy enabled in Dokploy. Other branches do not trigger this deployment. PostgreSQL data survives ordinary redeployments; configure volume backups in Dokploy before relying on the server for irreplaceable conversation history. The Temporal dashboard is deliberately not exposed publicly.
+
+To read conversation texts in Dokploy, open the deployment's logs and select the `worker` container. It logs `Linq message received` for each accepted incoming message and `Linq reply sent` after Linq accepts the reply, including the full text and chat, event, and incoming message IDs. Failed sends log `Linq reply failed after retries` with the attempted reply text. Text is JSON-quoted, so line breaks appear as `\n`. Duplicate webhooks and normal workflow replay do not repeat conversation logs. These are send confirmations from Linq, not delivery receipts from the recipient's phone.
+
+From the Docker host, find the worker with `docker ps`, then follow it with `docker logs --follow --tail 100 <worker-container>`. The gateway container logs webhook startup and queue errors. Both apps are containerized in the local `docker-compose.yml` and production `docker-compose.dokploy.yml`. Locally, `docker compose logs --follow worker gateway` follows both app containers.
 
 ## Message flow
 
@@ -113,7 +122,7 @@ A model request has a 100-second deadline, within a two-minute Temporal activity
 pnpm check-types
 pnpm lint
 pnpm test
-# Requires the local Temporal service (docker compose up -d).
+# Requires Temporal (docker compose up -d postgresql temporal).
 pnpm test:integration
 ```
 

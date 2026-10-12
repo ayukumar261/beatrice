@@ -114,6 +114,14 @@ export async function linqConversation(
     if (seen.has(eventKey) || seen.has(messageKey)) return;
     seen.add(eventKey);
     seen.add(messageKey);
+    // Keep text in the log message so the default logger does not truncate it
+    // as metadata. JSON quoting keeps multiline texts in one log entry.
+    log.info(`Linq message received: ${JSON.stringify(message.text)}`, {
+      chatId: message.chatId,
+      eventId: message.eventId,
+      messageId: message.messageId,
+      hasAttachments: message.hasAttachments,
+    });
     state.pending.push(message);
   });
 
@@ -128,10 +136,17 @@ export async function linqConversation(
         messageId: message.messageId,
         text,
       });
+      log.info(`Linq reply sent: ${JSON.stringify(text)}`, {
+        chatId: message.chatId,
+        eventId: message.eventId,
+        messageId: message.messageId,
+      });
     } catch {
       // A permanent send failure must not prevent later messages being processed.
-      log.error("Linq reply failed after retries", {
+      log.error(`Linq reply failed after retries: ${JSON.stringify(text)}`, {
+        chatId: message.chatId,
         eventId: message.eventId,
+        messageId: message.messageId,
       });
     }
     // Carry the queue and deduplication keys across runs; keep history bounded.
