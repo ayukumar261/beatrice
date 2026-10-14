@@ -74,7 +74,7 @@ Local database contents are not migrated automatically. After deploying, verify 
 
 Pushes to `main` automatically deploy through the repository's GitHub push webhook, with Autodeploy enabled in Dokploy. Other branches do not trigger this deployment. PostgreSQL data survives ordinary redeployments; configure volume backups in Dokploy before relying on the server for irreplaceable conversation history. The Temporal dashboard is deliberately not exposed publicly.
 
-To read conversation texts in Dokploy, open the deployment's logs and select the `worker` container. It logs `Linq message received` for each accepted incoming message and `Linq reply sent` after Linq accepts the reply, including the full text and chat, event, and incoming message IDs. Failed sends log `Linq reply failed after retries` with the attempted reply text. Text is JSON-quoted, so line breaks appear as `\n`. Duplicate webhooks and normal workflow replay do not repeat conversation logs. These are send confirmations from Linq, not delivery receipts from the recipient's phone.
+To read conversation texts in Dokploy, open the deployment's logs and select the `worker` container. It logs `Linq message received` for each accepted incoming message and `Linq reply sent` after Linq accepts the reply, including the full text and chat, event, and incoming message IDs. Batch replies include all contributing message IDs in `messageIds`, with the first message supplying the reply's primary ID. Failed sends log `Linq reply failed after retries` with the attempted reply text. Text is JSON-quoted, so line breaks appear as `\n`. Duplicate webhooks and normal workflow replay do not repeat conversation logs. These are send confirmations from Linq, not delivery receipts from the recipient's phone.
 
 From the Docker host, find the worker with `docker ps`, then follow it with `docker logs --follow --tail 100 <worker-container>`. The gateway container logs webhook startup and queue errors. Both apps are containerized in the local `docker-compose.yml` and production `docker-compose.dokploy.yml`. Locally, `docker compose logs --follow worker gateway` follows both app containers.
 
@@ -88,8 +88,12 @@ Your phone ← Linq ← reply activity     ← Temporal ← LLM response
 - The official Linq SDK verifies signatures and rejects stale requests. Unsigned requests receive `401`.
 - Only direct inbound messages from `LINQ_ALLOWED_NUMBERS` to `LINQ_PHONE_NUMBER` are accepted. Group chats, outgoing events, opt-outs, and reconciled historical messages are ignored.
 - The server returns `200` after Temporal stores the message, without waiting for the LLM. Queue failures return `503` so Linq can retry.
-- Each Linq chat has one conversation workflow. It processes messages serially, remembers the latest 20 complete LLM turns, and deduplicates recent event/message IDs. The last 2,000 messages' IDs survive workflow rollover and worker restarts.
-- Outgoing replies have a stable Linq idempotency key. Temporary send errors retry for up to five minutes; permanent failures are logged without blocking later turns.
+- Each Linq chat has one conversation workflow. Before answering, it waits for **2 seconds of quiet** after the latest unique message, capped at **10 seconds from the first message**. A text followed quickly by a link becomes one ordered request and receives one reply. An isolated message waits 2 seconds too; duplicate deliveries do not extend the wait.
+- Messages arriving after a turn starts stay queued for the next batch. The timing limit bounds batching delay, excluding time behind an active turn and time generating or sending the answer. A queued batch whose quiet period or cap has already elapsed can start immediately when the previous turn finishes. Temporal preserves pending messages and timer deadlines across worker restarts and workflow rollover.
+- The workflow remembers the latest 20 complete LLM turns, with each batch counting as one turn, and deduplicates recent event/message IDs. The last 2,000 messages' IDs, plus any older IDs still pending, survive workflow rollover and worker restarts.
+- Outgoing replies have a stable Linq idempotency key based on the first message in the batch. Temporary send errors retry for up to five minutes; permanent failures are logged without blocking later turns.
+- `/reset` closes the preceding batch, lets that answer finish, then sends its own acknowledgment. Messages after the command use fresh conversation context. An answer already underway is allowed to finish.
+- Combined input text over 16,000 characters receives the existing request to send a shorter version. It is neither split nor truncated and is not added to model conversation history.
 - Text and links are supported. Media-only messages receive a request for a text description. Attachments are not downloaded or sent to the model.
 - Linq chooses the available messaging transport, including SMS, iMessage, and RCS. Replies go to the same chat.
 
@@ -126,7 +130,7 @@ pnpm test
 pnpm test:integration
 ```
 
-Unit tests cover webhook authentication, sender/line filtering, malformed requests, body limits, configuration, and outbound API requests. The integration test uses real Temporal with mocked Linq and LLM activities, so it sends no real texts and makes no model API calls.
+Unit tests cover webhook authentication, sender/line filtering, malformed requests, body limits, configuration, and outbound API requests. Integration tests use real Temporal plus a Temporal time-skipping test server with mocked Linq and LLM activities, so they send no real texts and make no model API calls. Batching coverage includes quiet-period timing, the ten-second cap, duplicate delivery, reset boundaries, chat isolation, activity retries, worker restart, and workflow rollover. The SDK downloads and caches the time-skipping test server on its first run.
 
 ## References
 

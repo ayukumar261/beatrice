@@ -4,6 +4,7 @@ import {
   continueAsNew,
   defineSignal,
   log,
+  patched,
   proxyActivities,
   setHandler,
   workflowInfo,
@@ -25,6 +26,8 @@ const MAX_WEB_SEARCHES_PER_TURN = 50;
 /** Complete turns of history sent with each new message. */
 const MAX_HISTORY_TURNS = 20;
 const MAX_MESSAGE_CHARS = 16_000;
+const BATCH_QUIET_MS = 2_000;
+const BATCH_MAX_WAIT_MS = 10_000;
 /** Event and message IDs remembered to drop redelivered webhooks. */
 const MAX_SEEN_KEYS = 4_000;
 /** Messages handled before continuing as a new run, to bound event history. */
@@ -93,7 +96,8 @@ const { sendLinqReply } = proxyActivities<
 
 interface ConversationState {
   turns: Message[][];
-  pending: LinqIncomingMessage[];
+  // Optional for queued messages carried over from the pre-batching workflow.
+  pending: (LinqIncomingMessage & { receivedAt?: number })[];
   seen: string[];
   turn: number;
   trace?: string;
@@ -122,14 +126,19 @@ export async function linqConversation(
       messageId: message.messageId,
       hasAttachments: message.hasAttachments,
     });
-    state.pending.push(message);
+    // Workflow time is deterministic on replay; carry it across rollover too.
+    state.pending.push({ ...message, receivedAt: Date.now() });
   });
 
   let processed = 0;
   while (true) {
     await condition(() => state.pending.length > 0);
-    const message = state.pending.shift()!;
-    const text = await answer(state, message);
+    // Existing histories must replay their immediate, single-message turns.
+    const batching = patched("batch-rapid-messages-v1");
+    const batch = batching ? await takeBatch(state) : [state.pending.shift()!];
+    // The first message gives every retry of this batch the same reply key.
+    const message = batch[0]!;
+    const text = await answer(state, batch);
     try {
       await sendLinqReply({
         chatId: message.chatId,
@@ -140,6 +149,7 @@ export async function linqConversation(
         chatId: message.chatId,
         eventId: message.eventId,
         messageId: message.messageId,
+        messageIds: batch.map((item) => item.messageId),
       });
     } catch {
       // A permanent send failure must not prevent later messages being processed.
@@ -147,12 +157,25 @@ export async function linqConversation(
         chatId: message.chatId,
         eventId: message.eventId,
         messageId: message.messageId,
+        messageIds: batch.map((item) => item.messageId),
       });
     }
     // Carry the queue and deduplication keys across runs; keep history bounded.
-    while (seen.size > MAX_SEEN_KEYS) seen.delete(seen.values().next().value!);
+    const pendingKeys = new Set(
+      batching
+        ? state.pending.flatMap((item) => [
+            `event:${item.eventId}`,
+            `message:${item.messageId}`,
+          ])
+        : [],
+    );
+    for (const key of seen) {
+      if (seen.size <= MAX_SEEN_KEYS) break;
+      if (!pendingKeys.has(key)) seen.delete(key);
+    }
+    processed += batch.length;
     if (
-      ++processed >= MESSAGES_PER_RUN ||
+      processed >= MESSAGES_PER_RUN ||
       workflowInfo().continueAsNewSuggested
     ) {
       await continueAsNew<typeof linqConversation>({
@@ -163,25 +186,61 @@ export async function linqConversation(
   }
 }
 
-/** Picks the reply to one inbound text, adding the turn to history on success. */
+function isReset(message: LinqIncomingMessage): boolean {
+  return message.text.toLowerCase() === "/reset";
+}
+
+/** Freeze the batch before any activity starts; later signals stay queued. */
+async function takeBatch(
+  state: ConversationState,
+): Promise<LinqIncomingMessage[]> {
+  const first = state.pending[0]!;
+  if (isReset(first)) return state.pending.splice(0, 1);
+  const startedAt = first.receivedAt ?? Date.now();
+  while (true) {
+    // Reset closes the preceding batch immediately and is answered separately.
+    const resetIndex = state.pending.findIndex(isReset);
+    if (resetIndex >= 0) return state.pending.splice(0, resetIndex);
+
+    const count = state.pending.length;
+    const lastReceivedAt = state.pending[count - 1]!.receivedAt ?? startedAt;
+    const deadline = Math.min(
+      startedAt + BATCH_MAX_WAIT_MS,
+      lastReceivedAt + BATCH_QUIET_MS,
+    );
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) return state.pending.splice(0, count);
+
+    // Only unique messages change the queue and extend the durable timer.
+    await condition(() => state.pending.length !== count, remaining);
+  }
+}
+
+/** Picks one reply for a batch, adding one complete turn on success. */
 async function answer(
   state: ConversationState,
-  message: LinqIncomingMessage,
+  batch: LinqIncomingMessage[],
 ): Promise<string> {
-  if (message.text.toLowerCase() === "/reset") {
+  const message = batch[0]!;
+  if (batch.length === 1 && isReset(message)) {
     state.turns = [];
     return REPLIES.reset;
   }
-  if (!message.text) return REPLIES.attachmentOnly;
-  if (message.text.length > MAX_MESSAGE_CHARS) return REPLIES.tooLong;
+  if (!batch.some((item) => item.text)) return REPLIES.attachmentOnly;
+  if (batch.map((item) => item.text).join("\n\n").length > MAX_MESSAGE_CHARS)
+    return REPLIES.tooLong;
 
   const user: Message = {
     role: "user",
-    content:
-      message.text +
-      (message.hasAttachments
-        ? "\n[An attachment was included but is not available to you.]"
-        : ""),
+    content: batch
+      .map(
+        (item) =>
+          item.text +
+          (item.hasAttachments
+            ? "\n[An attachment was included but is not available to you.]"
+            : ""),
+      )
+      .join("\n\n"),
   };
   try {
     state.trace ??= await startTrace({ agent: "beatrice-sms" });
