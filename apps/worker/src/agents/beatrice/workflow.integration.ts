@@ -11,7 +11,7 @@ import {
   Worker,
 } from "@temporalio/worker";
 import { LINQ_CONVERSATION, LINQ_MESSAGE } from "@repo/types";
-import type { LinqIncomingMessage, Message } from "@repo/types";
+import type { LinqIncomingMessage, Message, ToolCall } from "@repo/types";
 import type { LinqReply } from "../../services/linq";
 import type { GenerateInput } from "../../services/openrouter";
 import type { linqConversation } from "./workflow";
@@ -28,12 +28,18 @@ test(
     const taskQueue = workflowId;
     const generated: GenerateInput[] = [];
     const replies: LinqReply[] = [];
+    const traces: string[] = [];
+    const toolTraces: string[] = [];
     const worker = await Worker.create({
       connection: native,
       taskQueue,
       workflowsPath: require.resolve("../../workflows"),
       activities: {
-        startTrace: async () => "test-trace",
+        startTrace: async () => {
+          const trace = `test-trace-${traces.length}`;
+          traces.push(trace);
+          return trace;
+        },
         generate: async (input: GenerateInput) => {
           generated.push(input);
           const last = input.messages.at(-1);
@@ -68,7 +74,10 @@ test(
         sendLinqReply: async (reply: LinqReply) => {
           replies.push(reply);
         },
-        executeTool: async () => "Test time",
+        executeTool: async (_call: ToolCall, trace: string) => {
+          toolTraces.push(trace);
+          return "Test time";
+        },
       },
     });
     // Signals exactly as the gateway does once a webhook passes validation.
@@ -120,8 +129,17 @@ test(
         );
         await send("five", "/reset");
         await waitForReplies(5);
+        assert.equal(
+          replies[4]!.text,
+          "Started a fresh conversation. What would you like to talk about?",
+        );
+        assert.equal(traces.length, 1, "Reset must defer trace creation");
         await send("six", "New conversation");
         await waitForReplies(6);
+        assert.equal(traces.length, 2);
+        assert.notEqual(traces[0], traces[1]);
+        assert.equal(generated.at(-1)!.trace, traces[1]);
+        assert.equal(generated.at(-1)!.turn, 0);
         assert.deepEqual(
           generated.at(-1)!.messages.map((message) => message.role),
           ["system", "user"],
@@ -173,6 +191,17 @@ test(
         await send("fresh-search-budget", "New search allowance");
         await waitForReplies(11);
         assert.equal(generated.at(-1)!.webSearchBudget, 50);
+        assert.equal(traces.length, 2, "Later turns must reuse the new trace");
+        assert.deepEqual(
+          generated.map(({ trace, turn, step }) => ({ trace, turn, step })),
+          [
+            ...[0, 1, 2, 3].map((turn) => ({ trace: traces[0], turn, step: 0 })),
+            ...[0, 1, 2, 3].map((turn) => ({ trace: traces[1], turn, step: 0 })),
+            ...[0, 1, 2].map((step) => ({ trace: traces[1], turn: 4, step })),
+            { trace: traces[1], turn: 5, step: 0 },
+          ],
+        );
+        assert.deepEqual(toolTraces, [traces[1], traces[1]]);
         await client.workflow
           .getHandle(workflowId)
           .terminate("Integration test complete");
@@ -237,6 +266,7 @@ describe("rapid message batching", () => {
     const generatedAt: number[] = [];
     const attempts: LinqReply[] = [];
     const replies: LinqReply[] = [];
+    const traces: string[] = [];
     const chats = new Set<string>();
     const handle = (chatId = "chat-1") =>
       env.client.workflow.getHandle(`${taskQueue}:${chatId}`);
@@ -254,7 +284,11 @@ describe("rapid message batching", () => {
         // Replay each task; avoid stale sticky queues when restarting a test worker.
         maxCachedWorkflows: 0,
         activities: {
-          startTrace: async () => "batch-test-trace",
+          startTrace: async () => {
+            const trace = `batch-test-trace-${traces.length}`;
+            traces.push(trace);
+            return trace;
+          },
           generate: async (input: GenerateInput) => {
             generated.push(input);
             generatedAt.push(await env.currentTimeMs());
@@ -280,6 +314,7 @@ describe("rapid message batching", () => {
       generatedAt,
       attempts,
       replies,
+      traces,
       worker,
       handle,
       settled,
@@ -429,6 +464,7 @@ describe("rapid message batching", () => {
           ["before", "reset"],
         );
         assert.match(c.replies[1]!.text, /Started a fresh conversation/);
+        assert.equal(c.traces.length, 1);
         await c.send(message("after", "After reset"));
         await c.advance(2_100);
         await c.waitForReplies(3);
@@ -436,6 +472,9 @@ describe("rapid message batching", () => {
           c.generated[1]!.messages.map((item) => item.role),
           ["system", "user"],
         );
+        assert.equal(c.traces.length, 2);
+        assert.equal(c.generated[1]!.trace, c.traces[1]);
+        assert.equal(c.generated[1]!.turn, 0);
       });
     },
   );
@@ -477,6 +516,15 @@ describe("rapid message batching", () => {
           assert.deepEqual(
             c.generated[2]!.messages.map((item) => item.role),
             ["system", "user"],
+          );
+          assert.equal(c.traces.length, 2);
+          assert.deepEqual(
+            c.generated.map(({ trace, turn }) => ({ trace, turn })),
+            [
+              { trace: c.traces[0], turn: 0 },
+              { trace: c.traces[0], turn: 1 },
+              { trace: c.traces[1], turn: 0 },
+            ],
           );
         });
       } finally {

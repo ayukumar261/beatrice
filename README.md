@@ -99,7 +99,7 @@ Your phone ← Linq ← reply activity     ← Temporal ← LLM response
 
 `GET /healthz` checks that the HTTP listener is alive. It does not probe Linq, OpenRouter, or Temporal. Temporal's local UI is available at [localhost:8080](http://localhost:8080).
 
-The agent's existing Braintrust tracing is retained. `.env.braintrust` is loaded if present. `/reset` clears the context used for future replies; it does not erase stored Temporal history or traces.
+The agent's existing Braintrust tracing is retained. `.env.braintrust` is loaded if present. `/reset` clears conversation memory and the current Braintrust trace association. The next normal message starts a new conversation trace at turn `0`; subsequent model and tool calls use that trace. Stored Temporal history and earlier traces remain available.
 
 In the Braintrust project configured by `BRAINTRUST_PROJECT` (default `beatrice`), open a conversation trace and inspect its `generate` LLM spans. Each span includes the requested `model` in metadata. Successful requests record:
 

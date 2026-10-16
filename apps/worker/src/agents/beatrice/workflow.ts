@@ -224,6 +224,8 @@ async function answer(
   const message = batch[0]!;
   if (batch.length === 1 && isReset(message)) {
     state.turns = [];
+    state.trace = undefined;
+    state.turn = 0;
     return REPLIES.reset;
   }
   if (!batch.some((item) => item.text)) return REPLIES.attachmentOnly;
