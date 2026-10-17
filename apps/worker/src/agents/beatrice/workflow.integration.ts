@@ -195,8 +195,16 @@ test(
         assert.deepEqual(
           generated.map(({ trace, turn, step }) => ({ trace, turn, step })),
           [
-            ...[0, 1, 2, 3].map((turn) => ({ trace: traces[0], turn, step: 0 })),
-            ...[0, 1, 2, 3].map((turn) => ({ trace: traces[1], turn, step: 0 })),
+            ...[0, 1, 2, 3].map((turn) => ({
+              trace: traces[0],
+              turn,
+              step: 0,
+            })),
+            ...[0, 1, 2, 3].map((turn) => ({
+              trace: traces[1],
+              turn,
+              step: 0,
+            })),
             ...[0, 1, 2].map((step) => ({ trace: traces[1], turn: 4, step })),
             { trace: traces[1], turn: 5, step: 0 },
           ],
@@ -259,6 +267,7 @@ describe("rapid message batching", () => {
     hooks: {
       generate?: (input: GenerateInput) => Promise<void>;
       send?: (reply: LinqReply) => Promise<void>;
+      prepareImages?: () => Promise<void>;
     } = {},
   ) {
     const taskQueue = `batch-test:${randomUUID()}`;
@@ -267,6 +276,7 @@ describe("rapid message batching", () => {
     const attempts: LinqReply[] = [];
     const replies: LinqReply[] = [];
     const traces: string[] = [];
+    const imported: LinqIncomingMessage[][] = [];
     const chats = new Set<string>();
     const handle = (chatId = "chat-1") =>
       env.client.workflow.getHandle(`${taskQueue}:${chatId}`);
@@ -284,6 +294,17 @@ describe("rapid message batching", () => {
         // Replay each task; avoid stale sticky queues when restarting a test worker.
         maxCachedWorkflows: 0,
         activities: {
+          prepareLinqImages: async (batch: LinqIncomingMessage[]) => {
+            imported.push(batch);
+            await hooks.prepareImages?.();
+            return batch.flatMap((item) => [
+              ...(item.text ? [{ type: "text", text: item.text }] : []),
+              ...(item.images ?? []).map((image) => ({
+                type: "stored_image",
+                key: `incoming/${image.id}`,
+              })),
+            ]);
+          },
           startTrace: async () => {
             const trace = `batch-test-trace-${traces.length}`;
             traces.push(trace);
@@ -310,6 +331,7 @@ describe("rapid message batching", () => {
     const settled = (chatId = "chat-1") =>
       handle(chatId).query("__stack_trace");
     return {
+      imported,
       generated,
       generatedAt,
       attempts,
@@ -350,6 +372,108 @@ describe("rapid message batching", () => {
       },
     };
   }
+
+  test(
+    "photos reach the model as durable references and survive follow-ups and worker replay",
+    { timeout: 60_000 },
+    async (t) => {
+      const c = conversation(t);
+      const photo = {
+        ...message("photo", ""),
+        hasAttachments: true,
+        images: [
+          {
+            id: "image-1",
+            mimeType: "image/png",
+            url: "https://cdn.linqapp.com/photo.png",
+          },
+        ],
+      };
+      await c.run(async () => {
+        await c.send(photo);
+        await c.advance(2_100);
+        await c.waitForReplies(1);
+        assert.equal(c.imported.length, 1);
+        assert.deepEqual(c.generated[0]!.messages.at(-1), {
+          role: "user",
+          content: [{ type: "stored_image", key: "incoming/image-1" }],
+        });
+        assert.match(
+          String(c.generated[0]!.messages[0]!.content),
+          /You can see photos/,
+        );
+      });
+      await c.run(async () => {
+        await c.send(photo);
+        await c.send(message("followup", "What color is it?"));
+        await c.advance(2_100);
+        await c.waitForReplies(2);
+        assert.equal(
+          c.imported.length,
+          1,
+          "Replay and duplicate signals must not reimport media",
+        );
+        assert.deepEqual(
+          c.generated[1]!.messages[1],
+          c.generated[0]!.messages.at(-1),
+        );
+        await c.send(message("reset-images", "/reset"));
+        await c.waitForReplies(3);
+        await c.send(message("new-turn", "Hello"));
+        await c.advance(2_100);
+        await c.waitForReplies(4);
+        assert.ok(
+          !JSON.stringify(c.generated.at(-1)!.messages).includes(
+            "stored_image",
+          ),
+        );
+      });
+    },
+  );
+
+  test(
+    "image import failures and too many photos do not poison conversation history",
+    { timeout: 60_000 },
+    async (t) => {
+      const c = conversation(t, {
+        prepareImages: async () => {
+          throw ApplicationFailure.nonRetryable("Expired photo");
+        },
+      });
+      const image = {
+        id: "image",
+        mimeType: "image/png",
+        url: "https://cdn.linqapp.com/photo.png",
+      };
+      await c.run(async () => {
+        await c.send({
+          ...message("five", ""),
+          hasAttachments: true,
+          images: Array.from({ length: 5 }, () => image),
+        });
+        await c.advance(2_100);
+        await c.waitForReplies(1);
+        assert.match(c.replies[0]!.text, /four photos/);
+        assert.equal(c.imported.length, 0);
+        await c.send({
+          ...message("expired", ""),
+          hasAttachments: true,
+          images: [image],
+        });
+        await c.advance(2_100);
+        await c.waitForReplies(2);
+        assert.match(c.replies[1]!.text, /couldn't open that photo/);
+        assert.equal(c.generated.length, 0);
+        await c.send(message("recovery", "Hello again"));
+        await c.advance(2_100);
+        await c.waitForReplies(3);
+        assert.deepEqual(
+          c.generated[0]!.messages.map((item) => item.role),
+          ["system", "user"],
+        );
+      });
+    },
+  );
 
   test(
     "text, link and attachment messages extend the quiet period and form one ordered turn",
@@ -702,7 +826,7 @@ describe("rapid message batching", () => {
   );
 
   test(
-    "attachment-only batches and oversized input keep the existing fallback replies",
+    "unsupported attachments and oversized input receive fallback replies",
     { timeout: 60_000 },
     async (t) => {
       const c = conversation(t);
@@ -711,7 +835,7 @@ describe("rapid message batching", () => {
         await c.send({ ...message("photo-2", ""), hasAttachments: true });
         await c.advance(2_100);
         await c.waitForReplies(1);
-        assert.match(c.replies[0]!.text, /Please describe/);
+        assert.match(c.replies[0]!.text, /Please send a JPEG/);
         await c.send(message("long", "x".repeat(16_001)));
         await c.advance(2_100);
         await c.waitForReplies(2);

@@ -6,6 +6,8 @@ import OpenAI from "openai";
 import type { Message, ToolCall } from "@repo/types";
 import { toolDefinitions } from "../tools";
 import { flushLogs } from "./braintrust";
+import type { GarageStore } from "./garage";
+import { resolveImages } from "./images";
 
 const REQUEST_TIMEOUT_MS = 100_000;
 
@@ -64,6 +66,7 @@ interface Annotation {
 export function createOpenRouterActivities(
   apiKey = process.env.OPENROUTER_API_KEY,
   client?: OpenAI,
+  store?: GarageStore,
 ) {
   if (!apiKey) {
     throw new Error(
@@ -106,6 +109,7 @@ export function createOpenRouterActivities(
                 ctx.cancellationSignal,
                 AbortSignal.timeout(REQUEST_TIMEOUT_MS),
               ]),
+              store,
             );
           currentSpan().log({
             input: input.messages,
@@ -148,12 +152,13 @@ export async function complete(
   client: OpenAI,
   input: CompletionInput,
   signal?: AbortSignal,
+  store?: GarageStore,
 ): Promise<Completion> {
   const { webSearchBudget } = input;
   const search = webSearchBudget > 0;
   const request = {
     model: input.model,
-    messages: input.messages,
+    messages: await resolveImages(input.messages, store, signal),
     tools: [
       ...toolDefinitions(input.tools),
       ...(search

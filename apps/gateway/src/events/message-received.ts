@@ -1,4 +1,5 @@
-import type { LinqIncomingMessage } from "@repo/types";
+import { IMAGE_MIME_TYPES } from "@repo/types";
+import type { LinqImage, LinqIncomingMessage } from "@repo/types";
 
 import type { Config } from "../config";
 
@@ -15,8 +16,7 @@ function id(value: unknown): string {
 }
 
 /**
- * Keeps only direct texts from an allowed number to the assistant's line and
- * extracts their text. Returns null for anything else.
+ * Keeps direct messages from an allowed number to the assistant's line.
  */
 export function parseMessageReceived(
   event: Record<string, unknown>,
@@ -50,6 +50,25 @@ export function parseMessageReceived(
   const hasAttachments = parts.some(
     (part) => part.type !== "text" && part.type !== "link",
   );
+  const images: LinqImage[] = parts
+    .filter(
+      (part) =>
+        part.type === "media" &&
+        typeof part.mime_type === "string" &&
+        IMAGE_MIME_TYPES.includes(part.mime_type),
+    )
+    .map((part) => {
+      if (typeof part.url !== "string" || part.url.length > 8192)
+        throw new Error("Invalid media URL");
+      return {
+        id: id(part.id),
+        url: part.url,
+        mimeType: part.mime_type as string,
+      };
+    });
+  const hasUnsupportedAttachments =
+    parts.filter((part) => part.type !== "text" && part.type !== "link")
+      .length > images.length;
   if (!text && !hasAttachments) return null;
   return {
     eventId: id(event.event_id),
@@ -57,5 +76,7 @@ export function parseMessageReceived(
     chatId: id(chat.id),
     text,
     hasAttachments,
+    ...(images.length && { images }),
+    ...(hasUnsupportedAttachments && { hasUnsupportedAttachments }),
   };
 }

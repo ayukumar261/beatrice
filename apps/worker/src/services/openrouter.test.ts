@@ -6,6 +6,8 @@ import { _exportsForTestingOnly, setFetch } from "braintrust";
 import OpenAI from "openai";
 import { startTrace } from "./braintrust";
 import { complete, createOpenRouterActivities } from "./openrouter";
+import type { GarageStore } from "./garage";
+import type { Message } from "@repo/types";
 
 function fakeClient(chunks: unknown[]) {
   const requests: Record<string, unknown>[] = [];
@@ -32,6 +34,54 @@ const input = {
 const citation = (url: string) => ({
   type: "url_citation",
   url_citation: { url },
+});
+
+test("stored photos become model image parts without putting bytes in activity inputs or outputs", async () => {
+  const { client, requests } = fakeClient([
+    { choices: [{ delta: { content: "A photo" } }] },
+  ]);
+  const body = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a3ioAAAAASUVORK5CYII=",
+    "base64",
+  );
+  const store = {
+    get: async (key: string) => {
+      assert.equal(key, "incoming/photo");
+      return { body, contentType: "image/png" };
+    },
+  } as GarageStore;
+  const messages: Message[] = [
+    {
+      role: "user",
+      content: [
+        { type: "text", text: "Describe this" },
+        { type: "stored_image", key: "incoming/photo" },
+      ],
+    },
+  ];
+  const output = await complete(
+    client,
+    { ...input, messages },
+    undefined,
+    store,
+  );
+  assert.deepEqual(requests[0]!.messages, [
+    {
+      role: "user",
+      content: [
+        { type: "text", text: "Describe this" },
+        {
+          type: "image_url",
+          image_url: {
+            url: `data:image/png;base64,${body.toString("base64")}`,
+          },
+        },
+      ],
+    },
+  ]);
+  assert.equal(output.text, "A photo");
+  assert.ok(!JSON.stringify(messages).includes("base64"));
+  assert.ok(!JSON.stringify(output).includes("base64"));
 });
 
 /** Advance a virtual monotonic clock as the SDK reads each SSE event. */

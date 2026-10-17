@@ -87,7 +87,11 @@ Both Compose files run [Garage 2.4.1](https://garagehq.deuxfleurs.fr/documentati
 
 The worker's `src/services/garage.ts` exports `createGarageStore` and `garageConfig`, with `put`, `get`, `has`, `delete`, and `close` methods. It uses the AWS S3 SDK with path-style addressing and the `garage` region. `GARAGE_ENDPOINT`, `GARAGE_BUCKET`, `GARAGE_ACCESS_KEY_ID`, and `GARAGE_SECRET_ACCESS_KEY` configure the client. An unconfigured host worker can still answer text; partial storage configuration fails at startup.
 
-Images currently remain in Garage until explicitly deleted; there is no automatic retention policy. Back up **both** Garage volumes. This is a single-node deployment with no redundant copy; `docker compose down -v` deletes its storage.
+Send JPEG, PNG, GIF, or WebP photos, up to **four images per turn and 5 MiB each**. HEIC, audio, video, and documents are not supported yet; export HEIC photos as JPEG before sending. Downloads accept only HTTPS URLs on `cdn.linqapp.com`, reject redirects, enforce a streaming size limit, and check image signatures. Linq chooses the available MMS/iMessage/RCS transport; plain SMS cannot carry photo bytes.
+
+Temporal history and Braintrust inputs contain private object keys, not image bytes. On each model call, the activity reads the newest four images in conversation context from Garage and sends them as [base64 image inputs](https://openrouter.ai/docs/guides/overview/multimodal/image-understanding). Older images are replaced with an explicit omission note. Stored images remain usable in follow-up questions after the provider download URL expires. If a photo expires before it can be stored, resend it. Activity retries reuse the same object key and skip completed uploads.
+
+`/reset` removes images from conversation context but does not delete bucket objects. Images currently remain in Garage until explicitly deleted; there is no automatic retention policy. Back up **both** Garage volumes. This is a single-node deployment with no redundant copy; `docker compose down -v` deletes its storage.
 
 Check the local bucket with `docker compose ps garage` and `docker compose exec garage /garage bucket info beatrice-media`. Test an actual private S3 upload/download/delete without sending a message or calling the LLM:
 
@@ -111,7 +115,7 @@ Your phone ← Linq ← reply activity     ← Temporal ← LLM response
 - Outgoing replies have a stable Linq idempotency key based on the first message in the batch. Temporary send errors retry for up to five minutes; permanent failures are logged without blocking later turns.
 - `/reset` closes the preceding batch, lets that answer finish, then sends its own acknowledgment. Messages after the command use fresh conversation context. An answer already underway is allowed to finish.
 - Combined input text over 16,000 characters receives the existing request to send a shorter version. It is neither split nor truncated and is not added to model conversation history.
-- Text and links are supported. Media-only messages receive a request for a text description. Attachments are not downloaded or sent to the model.
+- Text, links, and inbound photos are supported. Image-only messages reach the model too. The worker downloads supported photos from Linq’s media CDN into Garage before starting the model turn. Unsupported attachments receive a request for a supported image or are noted as unavailable alongside accompanying text.
 - Linq chooses the available messaging transport, including SMS, iMessage, and RCS. Replies go to the same chat.
 
 `GET /healthz` checks that the HTTP listener is alive. It does not probe Linq, OpenRouter, or Temporal. Temporal's local UI is available at [localhost:8080](http://localhost:8080).
