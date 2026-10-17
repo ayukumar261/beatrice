@@ -1,4 +1,25 @@
 services:
+  garage:
+    image: dxflrs/garage:v2.4.1
+    restart: unless-stopped
+    command: ["/garage", "server", "--single-node", "--default-bucket"]
+    environment:
+      GARAGE_RPC_SECRET: ${GARAGE_RPC_SECRET:?Set GARAGE_RPC_SECRET in Dokploy}
+      GARAGE_DEFAULT_ACCESS_KEY: ${GARAGE_ACCESS_KEY_ID:?Set GARAGE_ACCESS_KEY_ID in Dokploy}
+      GARAGE_DEFAULT_SECRET_KEY: ${GARAGE_SECRET_ACCESS_KEY:?Set GARAGE_SECRET_ACCESS_KEY in Dokploy}
+      GARAGE_DEFAULT_BUCKET: ${GARAGE_BUCKET:-beatrice-media}
+    volumes:
+      - ./deploy/garage.toml:/etc/garage.toml:ro
+      - garage-meta:/var/lib/garage/meta
+      - garage-data:/var/lib/garage/data
+    healthcheck:
+      test:
+        ["CMD", "/garage", "bucket", "info", "${GARAGE_BUCKET:-beatrice-media}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
   postgresql:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -88,6 +109,8 @@ services:
     working_dir: /app/apps/worker
     command: ["node", "--import", "tsx", "src/worker.ts"]
     depends_on:
+      garage:
+        condition: service_healthy
       temporal:
         condition: service_healthy
     environment:
@@ -96,6 +119,10 @@ services:
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:?Set OPENROUTER_API_KEY in Dokploy}
       BRAINTRUST_API_KEY: ${BRAINTRUST_API_KEY:?Set BRAINTRUST_API_KEY in Dokploy}
       BRAINTRUST_PROJECT: ${BRAINTRUST_PROJECT:-beatrice}
+      GARAGE_ENDPOINT: http://garage:3900
+      GARAGE_BUCKET: ${GARAGE_BUCKET:-beatrice-media}
+      GARAGE_ACCESS_KEY_ID: ${GARAGE_ACCESS_KEY_ID:?Set GARAGE_ACCESS_KEY_ID in Dokploy}
+      GARAGE_SECRET_ACCESS_KEY: ${GARAGE_SECRET_ACCESS_KEY:?Set GARAGE_SECRET_ACCESS_KEY in Dokploy}
 
   cloudflared:
     image: cloudflare/cloudflared:2025.11.1
@@ -133,5 +160,7 @@ networks:
     external: true
 
 volumes:
+  garage-meta:
+  garage-data:
   # A fresh volume initializes the renamed database and user on the first deploy.
   beatrice-postgres-data:

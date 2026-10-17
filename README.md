@@ -32,13 +32,14 @@ Requires Node.js 24+, pnpm, Docker Compose 2.24+, an OpenRouter API key, and a L
 
    The production webhook uses `https://linq.ayukumar261.com/webhooks/linq`. Do not repoint its saved subscription when testing locally unless you intend to take production offline.
 
-4. Start PostgreSQL, Temporal, its UI, the gateway, and the worker in Docker:
+4. Set up the private image bucket, then start the full Docker stack:
 
    ```sh
+   pnpm garage:setup
    pnpm dev
    ```
 
-   This runs `docker compose up --build` with attached logs. Use `pnpm dev -d` to run in the background and `pnpm dev:down` to remove the containers while keeping database storage. Both app containers also appear in Docker tools such as lazydocker; select `worker` to read both sides of a conversation.
+   `garage:setup` generates missing Garage credentials in the ignored root `.env` and starts Garage with a private `beatrice-media` bucket. Existing values are preserved on subsequent runs. `pnpm dev` runs `docker compose up --build` with attached logs for Garage, PostgreSQL, Temporal, its UI, the gateway, and the worker. Use `pnpm dev -d` to run in the background and `pnpm dev:down` to remove the containers while keeping database and image storage. Both app containers also appear in Docker tools such as lazydocker; select `worker` to read both sides of a conversation.
 
    Source edits under either app's `src` directory or `packages/types/src` reload the app automatically. Dependencies stay inside the image; rerun `pnpm dev` after changing package manifests or the lockfile. Compose loads the root `.env`; the worker also loads optional `.env.braintrust` and `apps/worker/.env` files in that order. Rerun `pnpm dev` after changing environment files. Optional environment files require [Compose 2.24 or later](https://docs.docker.com/compose/how-tos/environment-variables/set-environment-variables/).
 
@@ -46,7 +47,7 @@ Requires Node.js 24+, pnpm, Docker Compose 2.24+, an OpenRouter API key, and a L
 
 The computer, Docker stack, and development tunnel must remain running to receive replies locally. Compose connects the apps to `temporal:7233` and binds the gateway to `0.0.0.0` inside its container, overriding host-oriented values in `.env`. The gateway is exposed on host `127.0.0.1:${LINQ_PORT:-3001}` for your development tunnel.
 
-To run the apps directly on the host instead, start only infrastructure with `docker compose up -d postgresql temporal temporal-ui`, then run `pnpm dev:host`. Stop the app containers first if they are already running so only one worker processes the local task queue.
+To run the apps directly on the host instead, run `pnpm garage:setup` and start the remaining infrastructure with `docker compose up -d postgresql temporal temporal-ui`, then run `pnpm dev:host`. Stop the app containers first if they are already running so only one worker processes the local task queue.
 
 The worker requires `OPENROUTER_API_KEY` and `LINQ_API_KEY` to start. The gateway also requires the signing secret, assistant number, and allowed personal numbers.
 
@@ -58,7 +59,9 @@ Create a **Docker Compose** service with Git source `https://github.com/ayukumar
 
 In its Environment tab, set `POSTGRES_PASSWORD` to a random password and supply `LINQ_API_KEY`, `LINQ_WEBHOOK_SECRET`, `LINQ_PHONE_NUMBER`, `LINQ_ALLOWED_NUMBERS`, `OPENROUTER_API_KEY`, and `BRAINTRUST_API_KEY` from the existing local configuration. `BRAINTRUST_PROJECT` defaults to `beatrice`. Set `TUNNEL_CRED_CONTENTS` to the single-line JSON contents of the ignored `deploy/tunnel-credentials.json`, enclosed in single quotes. Keep these values in Dokploy; never commit them or include them in an image.
 
-The deployment starts PostgreSQL, Temporal 1.29.1, the gateway, the worker, and a Cloudflare Tunnel connector. Database storage uses the persistent `beatrice-postgres-data` Docker volume, scoped to the Dokploy Compose project. No database, Temporal, or app ports are published on the host. The gateway also joins `dokploy-network` for Dokploy's optional internal domain route.
+Set `GARAGE_RPC_SECRET`, `GARAGE_ACCESS_KEY_ID`, and `GARAGE_SECRET_ACCESS_KEY` in Dokploy as well. `pnpm garage:setup` generates suitable values in the local `.env`; copy these through Dokploy’s Environment tab. `GARAGE_BUCKET` defaults to `beatrice-media`. The worker uses the internal endpoint `http://garage:3900`.
+
+The deployment starts Garage 2.4.1, PostgreSQL, Temporal 1.29.1, the gateway, the worker, and a Cloudflare Tunnel connector. Garage automatically provisions its single-node layout, key, and bucket on startup and persists images and metadata in separate `garage-data` and `garage-meta` volumes. No Garage ports are published in production. Database storage uses the persistent `beatrice-postgres-data` Docker volume, scoped to the Dokploy Compose project. No database, Temporal, or app ports are published on the host. The gateway also joins `dokploy-network` for Dokploy's optional internal domain route.
 
 The first deployment after the project rename starts with a fresh database, resetting conversation memory and pending Temporal workflows. The previous `postgres-data` volume remains available for recovery; later deployments reuse `beatrice-postgres-data` and retain their data. Dokploy continues to use its configured `POSTGRES_PASSWORD`. Set any explicit `BRAINTRUST_PROJECT` override in Dokploy or local environment files to `beatrice` as well.
 
@@ -77,6 +80,20 @@ Pushes to `main` automatically deploy through the repository's GitHub push webho
 To read conversation texts in Dokploy, open the deployment's logs and select the `worker` container. It logs `Linq message received` for each accepted incoming message and `Linq reply sent` after Linq accepts the reply, including the full text and chat, event, and incoming message IDs. Batch replies include all contributing message IDs in `messageIds`, with the first message supplying the reply's primary ID. Failed sends log `Linq reply failed after retries` with the attempted reply text. Text is JSON-quoted, so line breaks appear as `\n`. Duplicate webhooks and normal workflow replay do not repeat conversation logs. These are send confirmations from Linq, not delivery receipts from the recipient's phone.
 
 From the Docker host, find the worker with `docker ps`, then follow it with `docker logs --follow --tail 100 <worker-container>`. The gateway container logs webhook startup and queue errors. Both apps are containerized in the local `docker-compose.yml` and production `docker-compose.dokploy.yml`. Locally, `docker compose logs --follow worker gateway` follows both app containers.
+
+## Garage image storage
+
+Both Compose files run [Garage 2.4.1](https://garagehq.deuxfleurs.fr/documentation/quick-start/) with a private S3 bucket. The local S3 API binds only to `127.0.0.1:3900`; RPC and administration ports are not published. Production uses only the internal Docker network. No public bucket, domain, or tunnel change is needed for image understanding.
+
+The worker's `src/services/garage.ts` exports `createGarageStore` and `garageConfig`, with `put`, `get`, `has`, `delete`, and `close` methods. It uses the AWS S3 SDK with path-style addressing and the `garage` region. `GARAGE_ENDPOINT`, `GARAGE_BUCKET`, `GARAGE_ACCESS_KEY_ID`, and `GARAGE_SECRET_ACCESS_KEY` configure the client. An unconfigured host worker can still answer text; partial storage configuration fails at startup.
+
+Images currently remain in Garage until explicitly deleted; there is no automatic retention policy. Back up **both** Garage volumes. This is a single-node deployment with no redundant copy; `docker compose down -v` deletes its storage.
+
+Check the local bucket with `docker compose ps garage` and `docker compose exec garage /garage bucket info beatrice-media`. Test an actual private S3 upload/download/delete without sending a message or calling the LLM:
+
+```sh
+pnpm --filter worker test:garage
+```
 
 ## Message flow
 

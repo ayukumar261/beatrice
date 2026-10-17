@@ -10,6 +10,7 @@
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "check-types": "turbo run check-types",
     "linq:setup": "pnpm --filter gateway linq:setup",
+    "garage:setup": "node scripts/garage-setup.mjs",
     "test": "turbo run test",
     "test:integration": "pnpm --filter worker test:integration"
   },

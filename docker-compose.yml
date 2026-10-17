@@ -1,6 +1,31 @@
 name: beatrice
 
 services:
+  garage:
+    image: dxflrs/garage:v2.4.1
+    restart: unless-stopped
+    command: ["/garage", "server", "--single-node", "--default-bucket"]
+    environment:
+      GARAGE_RPC_SECRET: ${GARAGE_RPC_SECRET:?Run pnpm garage:setup first}
+      GARAGE_DEFAULT_ACCESS_KEY: ${GARAGE_ACCESS_KEY_ID:?Run pnpm garage:setup first}
+      GARAGE_DEFAULT_SECRET_KEY: ${GARAGE_SECRET_ACCESS_KEY:?Run pnpm garage:setup first}
+      GARAGE_DEFAULT_BUCKET: ${GARAGE_BUCKET:-beatrice-media}
+    ports:
+      - "127.0.0.1:3900:3900"
+    volumes:
+      - ./deploy/garage.toml:/etc/garage.toml:ro
+      - garage-meta:/var/lib/garage/meta
+      - garage-data:/var/lib/garage/data
+    healthcheck:
+      test:
+        ["CMD", "/garage", "bucket", "info", "${GARAGE_BUCKET:-beatrice-media}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    networks:
+      - temporal
+
   postgresql:
     image: postgres:16-alpine
     container_name: postgresql
@@ -135,6 +160,8 @@ services:
         "src/worker.ts",
       ]
     depends_on:
+      garage:
+        condition: service_healthy
       temporal:
         condition: service_healthy
     env_file:
@@ -147,6 +174,10 @@ services:
     environment:
       NODE_ENV: development
       TEMPORAL_ADDRESS: temporal:7233
+      GARAGE_ENDPOINT: http://garage:3900
+      GARAGE_BUCKET: ${GARAGE_BUCKET:-beatrice-media}
+      GARAGE_ACCESS_KEY_ID: ${GARAGE_ACCESS_KEY_ID:?Run pnpm garage:setup first}
+      GARAGE_SECRET_ACCESS_KEY: ${GARAGE_SECRET_ACCESS_KEY:?Run pnpm garage:setup first}
     volumes:
       - ./apps/worker/src:/app/apps/worker/src:ro
       - ./packages/types/src:/app/packages/types/src:ro
@@ -154,6 +185,8 @@ services:
       - temporal
 
 volumes:
+  garage-meta:
+  garage-data:
   postgres-data:
 
 networks:

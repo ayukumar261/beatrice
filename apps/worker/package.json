@@ -8,9 +8,11 @@
     "lint": "eslint . --max-warnings 0",
     "check-types": "tsc --noEmit",
     "test": "tsx --test \"src/**/*.test.ts\"",
-    "test:integration": "tsx --test \"src/**/*.integration.ts\""
+    "test:integration": "tsx --test \"src/**/*.integration.ts\"",
+    "test:garage": "tsx --env-file-if-exists=../../.env --test src/services/garage.integration.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1152.0",
     "@linqapp/sdk": "^0.75.1",
     "@repo/types": "workspace:*",
     "@temporalio/activity": "^1.23.0",

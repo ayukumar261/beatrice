@@ -17,6 +17,8 @@ export interface LinqIncomingMessage {
   hasAttachments: boolean;
 }
 
+export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
 /** Minimal OpenAI-wire chat message shapes. */
 export type Message =
   | { role: "system"; content: string }

@@ -12,7 +12,11 @@
     "LINQ_ALLOWED_NUMBERS",
     "LINQ_WEBHOOK_SUBSCRIPTION_ID",
     "LINQ_HOST",
-    "LINQ_PORT"
+    "LINQ_PORT",
+    "GARAGE_ENDPOINT",
+    "GARAGE_BUCKET",
+    "GARAGE_ACCESS_KEY_ID",
+    "GARAGE_SECRET_ACCESS_KEY"
   ],
   "tasks": {
     "build": {
